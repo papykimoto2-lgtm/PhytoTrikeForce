@@ -2570,9 +2570,10 @@ let DB, STATE={user:null,depot:null,page:'dashboard'};
 const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','clients',
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
-'missions','conseils','rapports','depenses','campagnes','seq'];
+'missions','conseils','rapports','depenses','campagnes','seq',
+'actions_mkg','objectifs_com'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',4);
+  const r=indexedDB.open('PSF_ERP',5);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -2752,7 +2753,8 @@ const NAV=[
  ['⑧ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
  ['⑨ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
    ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations']]],
- ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
+ ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]],
+ ['⑪ Marketing & ROI',[['marketing','🎯','Plan Marketing & ROI']]]
 ];
 function buildNav(){
   let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
@@ -4879,6 +4881,751 @@ async function afficherRoute(ids,zone,titre){
    `<button class="btn-g" onclick="closeModal()">Fermer</button>
     <a href="${gmapDirLink(route)}" target="_blank" class="btn-p" style="text-decoration:none">🧭 Google Maps</a>
     <button class="btn-b" onclick="imprimerItineraire()">🖨️ Imprimer</button>`,true);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MODULE ⑪ — PLAN D'ACTION COMMERCIAL & MARKETING + ROI
+   Sanix Africa Division Technologies — PSF ERP 2026
+   Stores : actions_mkg, objectifs_com
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* -------- Constantes métier -------- */
+const MKG_TYPES={
+  pub_terrain:'📣 Pub terrain / Crieurs',
+  demo:'🧪 Démonstration produit',
+  promo:'🎁 Promotion / Offre spéciale',
+  pub_media:'📻 Pub radio / WhatsApp',
+  formation:'🎓 Formation agriculteurs',
+  visite_forain:'🏪 Visite marché forain',
+  caravane:'🚜 Caravane agricole',
+  partenariat:'🤝 Partenariat / Distributeur',
+  autre:'🔧 Autre action'
+};
+const MKG_STATUT={planifiee:'t-bleu',active:'t-vert',cloturee:'t-gris',annulee:'t-rouge'};
+const MKG_STATUT_LBL={planifiee:'Planifiée',active:'En cours',cloturee:'Clôturée',annulee:'Annulée'};
+const PERIODES_ROI=['Mensuel','Trimestriel','Semestriel','Annuel'];
+
+/* -------- PAGE PRINCIPALE -------- */
+PAGES.marketing=async()=>{
+  H(pageH('Plan d\'Action Commercial & Marketing',
+    `<button class="btn-p" onclick="editAction()">+ Action Marketing</button>
+     <button class="btn-b" style="margin-left:6px" onclick="editObjectif()">+ Objectif</button>`)+`
+   <div class="tabs" id="mkg-tabs">
+    <div class="tab on"  onclick="mkgTab('kpi',this)">📊 Tableau de bord ROI</div>
+    <div class="tab" onclick="mkgTab('actions',this)">📋 Actions Marketing</div>
+    <div class="tab" onclick="mkgTab('objectifs',this)">🎯 Objectifs Commerciaux</div>
+    <div class="tab" onclick="mkgTab('roi',this)">💰 Analyse ROI Détaillée</div>
+   </div>
+   <div id="mkg-body"></div>`);
+  mkgRender('kpi');
+};
+function mkgTab(t,el){
+  document.querySelectorAll('#mkg-tabs .tab').forEach(x=>x.classList.remove('on'));
+  el.classList.add('on');mkgRender(t);
+}
+async function mkgRender(t){
+  const box=document.getElementById('mkg-body');
+  if(t==='kpi')     return mkgKpi(box);
+  if(t==='actions') return mkgActions(box);
+  if(t==='objectifs')return mkgObjectifs(box);
+  if(t==='roi')     return mkgRoi(box);
+}
+
+/* ══════════════════════════════════════════════
+   ONGLET 1 — TABLEAU DE BORD ROI
+   ══════════════════════════════════════════════ */
+async function mkgKpi(box){
+  const acts=await dbAll('actions_mkg');
+  const objs=await dbAll('objectifs_com');
+  const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const cls=await dbAll('clients');
+  const missions=await dbAll('missions');
+  const an=new Date().getFullYear();
+  const moisCour=new Date().getMonth()+1;
+
+  // ── Calculs globaux ──
+  const totalBudget=acts.reduce((a,x)=>a+(x.budgetAlloue||0),0);
+  const totalDepenses=acts.reduce((a,x)=>a+(x.depensesReelles||0),0);
+  const totalCA=acts.reduce((a,x)=>a+(x.caGenere||0),0);
+  const totalContacts=acts.reduce((a,x)=>a+(x.clientsContactes||0),0);
+  const totalCommandes=acts.reduce((a,x)=>a+(x.commandesGenerees||0),0);
+  const totalNouveauxCls=acts.reduce((a,x)=>a+(x.nouveauxClients||0),0);
+  const roiGlobal=totalDepenses>0?((totalCA-totalDepenses)/totalDepenses*100):0;
+  const tauxConv=totalContacts>0?(totalCommandes/totalContacts*100):0;
+  const coutAcquis=totalNouveauxCls>0?(totalDepenses/totalNouveauxCls):0;
+
+  // ── CA réel ERP ──
+  const caErpAn=facs.filter(f=>(f.date||'').startsWith(String(an))).reduce((a,f)=>a+f.totalHT,0);
+  const caErpMois=facs.filter(f=>(f.date||'').startsWith(`${an}-${String(moisCour).padStart(2,'0')}`)).reduce((a,f)=>a+f.totalHT,0);
+
+  // ── Objectif mois courant ──
+  const objMois=objs.find(o=>o.periode===`${an}-${String(moisCour).padStart(2,'0')}`);
+  const objCA=objMois?.caObjectif||0;
+  const avObjCA=objCA>0?Math.min(100,Math.round(caErpMois/objCA*100)):0;
+
+  // ── Meilleure action ──
+  const bestAct=[...acts].filter(a=>a.caGenere>0).sort((a,b)=>(b.caGenere-b.depensesReelles)-(a.caGenere-a.depensesReelles))[0];
+  // ── Actions actives ──
+  const actsActives=acts.filter(a=>a.statut==='active').length;
+  const actsCloturees=acts.filter(a=>a.statut==='cloturee').length;
+
+  // ── ROI par type ──
+  const roiParType={};
+  acts.forEach(a=>{
+    const t=a.type||'autre';
+    if(!roiParType[t])roiParType[t]={budget:0,ca:0,nb:0};
+    roiParType[t].budget+=a.depensesReelles||0;
+    roiParType[t].ca+=a.caGenere||0;
+    roiParType[t].nb++;
+  });
+
+  // ── Tendance mensuelle CA vs objectifs ──
+  const tendance=[];
+  for(let m=1;m<=12;m++){
+    const mk=`${an}-${String(m).padStart(2,'0')}`;
+    const caMois=facs.filter(f=>(f.date||'').startsWith(mk)).reduce((a,f)=>a+f.totalHT,0);
+    const obj=objs.find(o=>o.periode===mk);
+    const budgetMkg=acts.filter(a=>a.dateDebut&&a.dateDebut.startsWith(mk)).reduce((a,x)=>a+(x.depensesReelles||0),0);
+    tendance.push({m,label:['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'][m-1],ca:caMois,obj:obj?.caObjectif||0,budget:budgetMkg});
+  }
+  const maxCA=Math.max(...tendance.map(t=>Math.max(t.ca,t.obj)),1);
+
+  box.innerHTML=`
+  <!-- KPIs ROI -->
+  <div class="grid kpis" style="margin-bottom:14px">
+   <div class="kpi vert">
+    <div class="lab">💰 ROI Global Actions Mkg</div>
+    <div class="val ${roiGlobal>=0?'txt-v':'txt-r'}">${roiGlobal>=0?'+':''}${roiGlobal.toFixed(1)}%</div>
+    <div class="sub">Pour ${FCFA(totalDepenses)} investis → ${FCFA(totalCA)} CA généré</div>
+   </div>
+   <div class="kpi bleu">
+    <div class="lab">📋 Actions Marketing</div>
+    <div class="val">${acts.length}</div>
+    <div class="sub">${actsActives} en cours • ${actsCloturees} clôturées</div>
+   </div>
+   <div class="kpi orange">
+    <div class="lab">🎯 Taux de Conversion</div>
+    <div class="val">${tauxConv.toFixed(1)}%</div>
+    <div class="sub">${FCFA0(totalCommandes)} cmd / ${FCFA0(totalContacts)} contacts</div>
+   </div>
+   <div class="kpi rouge">
+    <div class="lab">👤 Coût Acquisition Client</div>
+    <div class="val">${FCFA(coutAcquis)}</div>
+    <div class="sub">${FCFA0(totalNouveauxCls)} nouveaux clients acquis</div>
+   </div>
+  </div>
+
+  <!-- Avancement objectif mois -->
+  <div class="row" style="margin-bottom:14px">
+   <div class="card f">
+    <div class="card-h">🎯 Objectif CA — ${['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][moisCour]} ${an}</div>
+    ${objCA>0?`
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+     <span class="sm txt-m">Réalisé : <b>${FCFA(caErpMois)}</b></span>
+     <span class="sm txt-m">Objectif : <b>${FCFA(objCA)}</b></span>
+    </div>
+    <div class="progress" style="height:14px;border-radius:8px">
+     <i style="width:${avObjCA}%;background:${avObjCA>=100?'var(--ok)':avObjCA>=75?'var(--orange)':'var(--rouge)'}"></i>
+    </div>
+    <div class="center bold" style="margin-top:6px;color:${avObjCA>=100?'var(--ok)':avObjCA>=75?'var(--orange)':'var(--rouge)'}">${avObjCA}% atteint${avObjCA>=100?' ✅':''}</div>
+    ${avObjCA<100?`<div class="sm txt-m center">Écart : ${FCFA(objCA-caErpMois)} restants à réaliser</div>`:''}
+    `:`<div class="empty" style="padding:20px">Aucun objectif défini pour ce mois.
+     <br><button class="btn-b btn-sm" style="margin-top:8px" onclick="editObjectif()">+ Définir un objectif</button></div>`}
+   </div>
+   <div class="card f">
+    <div class="card-h">🏆 Meilleure Action Marketing</div>
+    ${bestAct?`
+    <div class="bold" style="font-size:16px;margin-bottom:6px">${MKG_TYPES[bestAct.type]||bestAct.type}</div>
+    <div class="sm">${esc(bestAct.titre)}</div>
+    <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+     <div class="kpi" style="padding:10px">
+      <div class="lab">CA Généré</div><div class="val sm txt-v">${FCFA(bestAct.caGenere)}</div>
+     </div>
+     <div class="kpi" style="padding:10px">
+      <div class="lab">Budget dépensé</div><div class="val sm">${FCFA(bestAct.depensesReelles||0)}</div>
+     </div>
+    </div>
+    <div class="center bold" style="margin-top:8px;color:var(--vert)">
+     ROI : ${bestAct.depensesReelles>0?(((bestAct.caGenere-bestAct.depensesReelles)/bestAct.depensesReelles)*100).toFixed(0)+'%':'N/A'}
+    </div>`:`<div class="empty">Clôturez des actions pour voir la meilleure performance</div>`}
+   </div>
+  </div>
+
+  <!-- Graphique tendance + ROI par type -->
+  <div class="row">
+   <div class="card" style="flex:2">
+    <div class="card-h">📈 Tendance CA Réel vs Objectifs — ${an}</div>
+    <div style="overflow-x:auto">
+     <svg viewBox="0 0 780 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:500px">
+      <!-- Lignes de fond -->
+      ${[0,25,50,75,100].map(p=>`
+       <line x1="38" y1="${8+p}" x2="778" y2="${8+p}" stroke="#e2e8f0" stroke-width="0.5"/>
+       <text x="33" y="${12+p}" text-anchor="end" font-size="7" fill="#94a3b8">${FCFA0(Math.round(maxCA*(1-p/100)/1000))+'K'}</text>`).join('')}
+      <!-- Barres CA et Objectifs -->
+      ${tendance.map((t,i)=>{
+        const x=38+i*61;const bw=24;
+        const hCA=t.ca>0?Math.min(100,Math.round(t.ca/maxCA*100)):0;
+        const hObj=t.obj>0?Math.min(100,Math.round(t.obj/maxCA*100)):0;
+        const isMois=t.m===moisCour;
+        return `
+         <rect x="${x}" y="${108-hCA}" width="${bw}" height="${hCA}" rx="3"
+           fill="${isMois?'var(--vert)':'#86efac'}" opacity="${isMois?1:.8}"/>
+         ${t.obj>0?`<rect x="${x+bw+2}" y="${108-hObj}" width="6" height="${hObj}" rx="2" fill="#cbd5e1"/>
+          <line x1="${x}" y1="${108-hObj}" x2="${x+bw+8}" y2="${108-hObj}" stroke="var(--orange)" stroke-width="1.5" stroke-dasharray="3,2"/>`:''}
+         <text x="${x+bw/2}" y="118" text-anchor="middle" font-size="7.5" fill="${isMois?'var(--vert)':'#64748b'}" font-weight="${isMois?'700':'400'}">${t.label}</text>
+         ${hCA>0?`<text x="${x+bw/2}" y="${105-hCA}" text-anchor="middle" font-size="6" fill="var(--vert)" font-weight="600">${hCA}%</text>`:''}`;
+      }).join('')}
+      <!-- Légende -->
+      <rect x="45" y="130" width="10" height="8" rx="2" fill="var(--vert)"/>
+      <text x="58" y="138" font-size="8" fill="#475569">CA Réel</text>
+      <line x1="95" y1="134" x2="110" y2="134" stroke="var(--orange)" stroke-width="1.5" stroke-dasharray="3,2"/>
+      <text x="114" y="138" font-size="8" fill="#475569">Objectif</text>
+     </svg>
+    </div>
+   </div>
+   <div class="card f">
+    <div class="card-h">🔬 ROI par Type d'Action</div>
+    <table>
+     <tr><th>Type</th><th class="right">Budget</th><th class="right">CA</th><th class="right">ROI</th></tr>
+     ${Object.entries(roiParType).length?Object.entries(roiParType).sort((a,b)=>{
+       const roiA=a[1].budget>0?((a[1].ca-a[1].budget)/a[1].budget*100):0;
+       const roiB=b[1].budget>0?((b[1].ca-b[1].budget)/b[1].budget*100):0;
+       return roiB-roiA;
+     }).map(([t,d])=>{
+       const roi=d.budget>0?((d.ca-d.budget)/d.budget*100):0;
+       return `<tr>
+        <td class="sm">${MKG_TYPES[t]||t}<br><span class="txt-m">${d.nb} action(s)</span></td>
+        <td class="right">${FCFA(d.budget)}</td>
+        <td class="right txt-v bold">${FCFA(d.ca)}</td>
+        <td class="right bold ${roi>=0?'txt-v':'txt-r'}">${roi>=0?'+':''}${roi.toFixed(0)}%</td>
+       </tr>`;}).join('')
+     :'<tr><td colspan="4" class="empty">Aucune donnée</td></tr>'}
+    </table>
+   </div>
+  </div>
+
+  <!-- Budget global -->
+  <div class="card">
+   <div class="card-h">💼 Synthèse Budget Marketing</div>
+   <div class="row">
+    <div style="flex:1;min-width:120px;text-align:center">
+     <div class="lab txt-m sm">Budget Alloué Total</div>
+     <div class="val" style="font-size:20px">${FCFA(totalBudget)}</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center">
+     <div class="lab txt-m sm">Dépenses Réelles</div>
+     <div class="val" style="font-size:20px;color:var(--orange)">${FCFA(totalDepenses)}</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center">
+     <div class="lab txt-m sm">CA Attribuable</div>
+     <div class="val" style="font-size:20px;color:var(--ok)">${FCFA(totalCA)}</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center">
+     <div class="lab txt-m sm">Gain Net Mkg</div>
+     <div class="val" style="font-size:20px;color:${totalCA-totalDepenses>=0?'var(--ok)':'var(--rouge)'}">${FCFA(totalCA-totalDepenses)}</div>
+    </div>
+   </div>
+   ${totalBudget>0?`
+   <div style="margin-top:12px">
+    <div class="sm txt-m" style="margin-bottom:4px">Consommation budget : ${totalBudget>0?Math.round(totalDepenses/totalBudget*100):0}%</div>
+    <div class="progress" style="height:10px"><i style="width:${totalBudget>0?Math.min(100,Math.round(totalDepenses/totalBudget*100)):0}%;background:var(--bleu)"></i></div>
+   </div>`:''}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   ONGLET 2 — ACTIONS MARKETING (CRUD)
+   ══════════════════════════════════════════════ */
+async function mkgActions(box){
+  const acts=await dbAll('actions_mkg');
+  acts.sort((a,b)=>b.dateDebut>a.dateDebut?1:-1);
+  box.innerHTML=`
+  <div class="toolbar">
+   <input id="mkg-search" placeholder="🔍 Rechercher action..." oninput="filterMkgActions()" style="min-width:220px">
+   <select id="mkg-filter-type" onchange="filterMkgActions()" style="width:auto">
+    <option value="">Tous les types</option>
+    ${Object.entries(MKG_TYPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+   </select>
+   <select id="mkg-filter-stat" onchange="filterMkgActions()" style="width:auto">
+    <option value="">Tous statuts</option>
+    <option value="planifiee">Planifiée</option>
+    <option value="active">En cours</option>
+    <option value="cloturee">Clôturée</option>
+    <option value="annulee">Annulée</option>
+   </select>
+   <button class="btn-p" onclick="editAction()">+ Nouvelle action</button>
+  </div>
+  <div class="card">
+   <table id="mkg-table">
+    <tr>
+     <th>N°</th><th>Type</th><th>Titre</th><th>Zone / Cible</th>
+     <th class="right">Budget</th><th class="right">Dépensé</th>
+     <th class="right">CA Généré</th><th class="right">ROI</th>
+     <th>Statut</th><th></th>
+    </tr>
+    ${acts.length?acts.map(a=>{
+      const roi=a.depensesReelles>0?((a.caGenere||0-a.depensesReelles)/a.depensesReelles*100):0;
+      const roiNet=(a.caGenere||0)-(a.depensesReelles||0);
+      return `<tr data-titre="${esc(a.titre)}" data-type="${a.type||''}" data-stat="${a.statut||''}">
+       <td class="sm bold">${esc(a.num||'-')}</td>
+       <td class="sm">${MKG_TYPES[a.type]||a.type||'—'}</td>
+       <td><b>${esc(a.titre)}</b><br><span class="sm txt-m">${esc(a.dateDebut||'')} ${a.dateFin?'→ '+a.dateFin:''}</span></td>
+       <td class="sm">${esc(a.zone||'—')}<br><span class="txt-m">${esc(a.cible||'')}</span></td>
+       <td class="right">${FCFA(a.budgetAlloue||0)}</td>
+       <td class="right ${(a.depensesReelles||0)>(a.budgetAlloue||0)?'txt-r':''}">${FCFA(a.depensesReelles||0)}</td>
+       <td class="right txt-v bold">${FCFA(a.caGenere||0)}</td>
+       <td class="right bold ${roiNet>=0?'txt-v':'txt-r'}">${a.depensesReelles>0?(roi>=0?'+':'')+roi.toFixed(0)+'%':'—'}</td>
+       <td><span class="tag ${MKG_STATUT[a.statut]||'t-gris'}">${MKG_STATUT_LBL[a.statut]||a.statut}</span></td>
+       <td style="white-space:nowrap">
+        <button class="btn-b btn-sm" onclick="editAction('${a.id}')">✏️</button>
+        <button class="btn-g btn-sm" onclick="voirAction('${a.id}')">👁</button>
+        <button class="btn-r btn-sm" onclick="delAction('${a.id}')">×</button>
+       </td>
+      </tr>`;}).join('')
+    :'<tr><td colspan="10" class="empty">Aucune action marketing. <a href="#" onclick="editAction()">Créez la première →</a></td></tr>'}
+   </table>
+  </div>`;
+}
+function filterMkgActions(){
+  const q=(document.getElementById('mkg-search')?.value||'').toLowerCase();
+  const ft=document.getElementById('mkg-filter-type')?.value||'';
+  const fs=document.getElementById('mkg-filter-stat')?.value||'';
+  document.querySelectorAll('#mkg-table tr[data-titre]').forEach(tr=>{
+    const ok=(!q||tr.dataset.titre.toLowerCase().includes(q))
+      &&(!ft||tr.dataset.type===ft)
+      &&(!fs||tr.dataset.stat===fs);
+    tr.style.display=ok?'':'none';
+  });
+}
+
+/* ── Modal Création/Édition Action ── */
+async function editAction(id){
+  const a=id?await dbGet('actions_mkg',id):{statut:'planifiee',dateDebut:today()};
+  modal(id?'Modifier l\'action marketing':'Nouvelle action marketing',`
+   <div class="row">
+    <div class="fld f"><label>Type d'action</label>
+     <select id="ma-type">
+      ${Object.entries(MKG_TYPES).map(([k,v])=>`<option value="${k}" ${a.type===k?'selected':''}>${v}</option>`).join('')}
+     </select></div>
+    <div class="fld f"><label>Statut</label>
+     <select id="ma-stat">
+      <option value="planifiee" ${a.statut==='planifiee'?'selected':''}>Planifiée</option>
+      <option value="active" ${a.statut==='active'?'selected':''}>En cours</option>
+      <option value="cloturee" ${a.statut==='cloturee'?'selected':''}>Clôturée</option>
+      <option value="annulee" ${a.statut==='annulee'?'selected':''}>Annulée</option>
+     </select></div>
+   </div>
+   <div class="fld"><label>Titre de l'action</label>
+    <input id="ma-titre" value="${esc(a.titre||'')}" placeholder="Ex: Démo herbicides zone Sakassou mai 2026"></div>
+   <div class="row">
+    <div class="fld f"><label>Zone géographique</label>
+     <input id="ma-zone" value="${esc(a.zone||'')}" placeholder="Ex: Yamoussoukro, Daoukro..."></div>
+    <div class="fld f"><label>Cible (culture/agriculteurs)</label>
+     <input id="ma-cible" value="${esc(a.cible||'')}" placeholder="Ex: riziculteurs, cacaoculteurs..."></div>
+   </div>
+   <div class="row">
+    <div class="fld f"><label>Date de début</label>
+     <input id="ma-deb" type="date" value="${a.dateDebut||today()}"></div>
+    <div class="fld f"><label>Date de fin</label>
+     <input id="ma-fin" type="date" value="${a.dateFin||''}"></div>
+   </div>
+   <div class="fld"><label>Description / Contenu de l'action</label>
+    <textarea id="ma-desc" rows="2" placeholder="Détail de l'action, messages clés...">${esc(a.description||'')}</textarea></div>
+   <div class="card-h" style="margin-top:8px;border-top:1px solid var(--bord);padding-top:10px">💰 Budget & Résultats</div>
+   <div class="row">
+    <div class="fld f"><label>Budget alloué (FCFA)</label>
+     <input id="ma-bgt" type="number" value="${a.budgetAlloue||0}" min="0"></div>
+    <div class="fld f"><label>Dépenses réelles (FCFA)</label>
+     <input id="ma-dep" type="number" value="${a.depensesReelles||0}" min="0"></div>
+   </div>
+   <div class="row">
+    <div class="fld f"><label>Contacts réalisés (personnes)</label>
+     <input id="ma-cnt" type="number" value="${a.clientsContactes||0}" min="0"></div>
+    <div class="fld f"><label>Commandes générées</label>
+     <input id="ma-cmd" type="number" value="${a.commandesGenerees||0}" min="0"></div>
+   </div>
+   <div class="row">
+    <div class="fld f"><label>Nouveaux clients acquis</label>
+     <input id="ma-ncl" type="number" value="${a.nouveauxClients||0}" min="0"></div>
+    <div class="fld f"><label>CA attribuable (FCFA)</label>
+     <input id="ma-ca" type="number" value="${a.caGenere||0}" min="0" oninput="calcRoiPreview()"></div>
+   </div>
+   <div id="roi-preview" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px;margin-top:4px;display:none">
+    <div class="sm bold txt-v" id="roi-pv-val"></div>
+   </div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveAction('${id||''}')">💾 Enregistrer</button>`,true);
+}
+function calcRoiPreview(){
+  const dep=parseFloat(document.getElementById('ma-dep')?.value)||0;
+  const ca=parseFloat(document.getElementById('ma-ca')?.value)||0;
+  const pv=document.getElementById('roi-preview');
+  const pvv=document.getElementById('roi-pv-val');
+  if(!pv||!pvv)return;
+  if(dep>0&&ca>0){
+    const roi=((ca-dep)/dep*100);
+    pv.style.display='block';
+    pv.style.background=roi>=0?'#f0fdf4':'#fef2f2';
+    pv.style.borderColor=roi>=0?'#86efac':'#fca5a5';
+    pvv.textContent=`📊 ROI estimé : ${roi>=0?'+':''}${roi.toFixed(1)}% • Gain net : ${FCFA(ca-dep)}`;
+    pvv.style.color=roi>=0?'var(--ok)':'var(--rouge)';
+  } else pv.style.display='none';
+}
+async function saveAction(id){
+  const titre=val('ma-titre');
+  if(!titre){toast('Titre requis','r');return;}
+  const a=id?await dbGet('actions_mkg',id):{id:uid()};
+  if(!a.num)a.num='MKG-'+String((await dbAll('actions_mkg')).length+1).padStart(3,'0');
+  Object.assign(a,{
+    titre,type:val('ma-type'),statut:val('ma-stat'),
+    zone:val('ma-zone'),cible:val('ma-cible'),
+    description:val('ma-desc'),
+    dateDebut:val('ma-deb'),dateFin:val('ma-fin'),
+    budgetAlloue:num('ma-bgt'),depensesReelles:num('ma-dep'),
+    clientsContactes:num('ma-cnt'),commandesGenerees:num('ma-cmd'),
+    nouveauxClients:num('ma-ncl'),caGenere:num('ma-ca')
+  });
+  await dbPut('actions_mkg',a);
+  closeModal();toast('Action marketing enregistrée ✅');
+  mkgRender('actions');
+}
+async function voirAction(id){
+  const a=await dbGet('actions_mkg',id);
+  const roi=a.depensesReelles>0?((a.caGenere||0-a.depensesReelles)/a.depensesReelles*100):0;
+  const conv=a.clientsContactes>0?((a.commandesGenerees||0)/a.clientsContactes*100):0;
+  modal(`Détail — ${a.num} : ${esc(a.titre)}`,`
+   <div class="row">
+    <div class="kpi f" style="padding:10px"><div class="lab">Type</div><div class="val sm">${MKG_TYPES[a.type]||a.type}</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Statut</div>
+     <div class="val sm"><span class="tag ${MKG_STATUT[a.statut]||'t-gris'}">${MKG_STATUT_LBL[a.statut]}</span></div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Période</div>
+     <div class="val sm" style="font-size:13px">${a.dateDebut||'?'} → ${a.dateFin||'?'}</div></div>
+   </div>
+   <div style="background:#f8fafc;padding:10px;border-radius:8px;margin:8px 0">
+    <div class="sm bold">📍 Zone : ${esc(a.zone||'—')} &nbsp;|&nbsp; 🌾 Cible : ${esc(a.cible||'—')}</div>
+    ${a.description?`<div class="sm txt-m" style="margin-top:4px">${esc(a.description)}</div>`:''}
+   </div>
+   <div class="row" style="gap:8px">
+    <div class="kpi f" style="padding:10px"><div class="lab">Budget Alloué</div><div class="val sm">${FCFA(a.budgetAlloue||0)}</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Dépenses Réelles</div><div class="val sm" style="color:var(--orange)">${FCFA(a.depensesReelles||0)}</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">CA Généré</div><div class="val sm txt-v">${FCFA(a.caGenere||0)}</div></div>
+   </div>
+   <div class="row" style="gap:8px;margin-top:8px">
+    <div class="kpi f" style="padding:10px"><div class="lab">Contacts</div><div class="val sm">${FCFA0(a.clientsContactes||0)}</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Commandes</div><div class="val sm">${FCFA0(a.commandesGenerees||0)}</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Taux Conversion</div><div class="val sm">${conv.toFixed(1)}%</div></div>
+    <div class="kpi f" style="padding:10px"><div class="lab">Nv Clients</div><div class="val sm">${FCFA0(a.nouveauxClients||0)}</div></div>
+   </div>
+   <div style="background:${roi>=0?'#f0fdf4':'#fef2f2'};border:2px solid ${roi>=0?'#86efac':'#fca5a5'};border-radius:10px;padding:14px;text-align:center;margin-top:12px">
+    <div class="sm txt-m">Retour sur Investissement (ROI)</div>
+    <div style="font-size:32px;font-weight:900;color:${roi>=0?'var(--ok)':'var(--rouge)'}">${a.depensesReelles>0?(roi>=0?'+':'')+roi.toFixed(1)+'%':'N/A'}</div>
+    <div class="sm">Gain net : <b>${FCFA((a.caGenere||0)-(a.depensesReelles||0))}</b></div>
+   </div>`,
+   `<button class="btn-g" onclick="closeModal()">Fermer</button>
+    <button class="btn-b" onclick="closeModal();editAction('${id}')">✏️ Modifier</button>`,true);
+}
+function delAction(id){confirmDel('Supprimer cette action marketing ?',
+  `async()=>{await dbDel('actions_mkg','${id}');toast('Action supprimée');mkgRender('actions');}`);}
+
+/* ══════════════════════════════════════════════
+   ONGLET 3 — OBJECTIFS COMMERCIAUX
+   ══════════════════════════════════════════════ */
+async function mkgObjectifs(box){
+  const objs=await dbAll('objectifs_com');
+  const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const emps=await dbAll('employes');
+  const an=new Date().getFullYear();
+  objs.sort((a,b)=>b.periode>a.periode?1:-1);
+
+  const rows=objs.map(o=>{
+    const caReel=facs.filter(f=>(f.date||'').startsWith(o.periode)).reduce((a,f)=>a+f.totalHT,0);
+    const pct=o.caObjectif>0?Math.min(100,Math.round(caReel/o.caObjectif*100)):0;
+    const ecart=caReel-(o.caObjectif||0);
+    return `<tr>
+     <td class="bold">${o.periode}</td>
+     <td class="right">${FCFA(o.caObjectif||0)}</td>
+     <td class="right txt-v bold">${FCFA(caReel)}</td>
+     <td>
+      <div class="progress" style="width:90px;display:inline-block"><i style="width:${pct}%;background:${pct>=100?'var(--ok)':pct>=75?'var(--orange)':'var(--rouge)'}"></i></div>
+      <span class="sm" style="margin-left:6px">${pct}%</span>
+     </td>
+     <td class="right bold ${ecart>=0?'txt-v':'txt-r'}">${ecart>=0?'+':''}${FCFA(ecart)}</td>
+     <td class="right">${FCFA(o.margeObjectif||0)}</td>
+     <td class="right">${FCFA(o.budgetMkg||0)}</td>
+     <td>
+      <button class="btn-b btn-sm" onclick="editObjectif('${o.id}')">✏️</button>
+      <button class="btn-r btn-sm" onclick="delObjectif('${o.id}')">×</button>
+     </td>
+    </tr>`;
+  }).join('');
+
+  // Calcul performance annuelle globale
+  const caObjAn=objs.filter(o=>o.periode.startsWith(String(an))).reduce((a,o)=>a+(o.caObjectif||0),0);
+  const caReelAn=facs.filter(f=>(f.date||'').startsWith(String(an))).reduce((a,f)=>a+f.totalHT,0);
+  const pctAn=caObjAn>0?Math.round(caReelAn/caObjAn*100):0;
+
+  box.innerHTML=`
+  <div class="row" style="margin-bottom:14px">
+   <div class="kpi bleu f">
+    <div class="lab">📅 Objectif CA Annuel ${an}</div>
+    <div class="val">${FCFA(caObjAn)}</div>
+    <div class="sub">Défini sur ${objs.filter(o=>o.periode.startsWith(String(an))).length} périodes</div>
+   </div>
+   <div class="kpi vert f">
+    <div class="lab">✅ CA Réel ${an}</div>
+    <div class="val">${FCFA(caReelAn)}</div>
+    <div class="sub">${pctAn}% de l'objectif annuel</div>
+   </div>
+   <div class="kpi ${caReelAn-caObjAn>=0?'vert':'rouge'} f">
+    <div class="lab">📊 Écart vs Objectif</div>
+    <div class="val">${caReelAn-caObjAn>=0?'+':''}${FCFA(caReelAn-caObjAn)}</div>
+    <div class="sub">${pctAn>=100?'🎉 Objectif atteint !':pctAn>=75?'⚡ En bonne voie':'⚠️ Sous-performance'}</div>
+   </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+   <div class="bold">Suivi des objectifs par période</div>
+   <button class="btn-p" onclick="editObjectif()">+ Définir un objectif</button>
+  </div>
+  <div class="card">
+   <table>
+    <tr>
+     <th>Période</th>
+     <th class="right">Objectif CA</th>
+     <th class="right">CA Réel</th>
+     <th>Avancement</th>
+     <th class="right">Écart</th>
+     <th class="right">Obj. Marge</th>
+     <th class="right">Budget Mkg</th>
+     <th></th>
+    </tr>
+    ${rows||'<tr><td colspan="8" class="empty">Aucun objectif défini. <a href="#" onclick="editObjectif()">Créer →</a></td></tr>'}
+   </table>
+  </div>`;
+}
+async function editObjectif(id){
+  const o=id?await dbGet('objectifs_com',id):{};
+  const an=new Date().getFullYear();
+  const emps=await dbAll('employes');
+  // Générer les 12 périodes mensuelles
+  const periodes=[];
+  for(let m=1;m<=12;m++) periodes.push(`${an}-${String(m).padStart(2,'0')}`);
+  for(let m=1;m<=12;m++) periodes.push(`${an+1}-${String(m).padStart(2,'0')}`);
+
+  modal(id?'Modifier l\'objectif':'Nouvel objectif commercial',`
+   <div class="fld"><label>Période (AAAA-MM)</label>
+    <select id="ob-per">
+     ${periodes.map(p=>`<option value="${p}" ${o.periode===p?'selected':''}>${p}</option>`).join('')}
+    </select></div>
+   <div class="row">
+    <div class="fld f"><label>Objectif CA HT (FCFA)</label>
+     <input id="ob-ca" type="number" value="${o.caObjectif||0}" min="0"></div>
+    <div class="fld f"><label>Objectif Marge (FCFA)</label>
+     <input id="ob-mg" type="number" value="${o.margeObjectif||0}" min="0"></div>
+   </div>
+   <div class="row">
+    <div class="fld f"><label>Budget Marketing alloué (FCFA)</label>
+     <input id="ob-bm" type="number" value="${o.budgetMkg||0}" min="0"></div>
+    <div class="fld f"><label>Objectif visites terrain</label>
+     <input id="ob-vt" type="number" value="${o.visitesObjectif||0}" min="0"></div>
+   </div>
+   <div class="row">
+    <div class="fld f"><label>Objectif nouvelles commandes</label>
+     <input id="ob-nc" type="number" value="${o.commandesObjectif||0}" min="0"></div>
+    <div class="fld f"><label>Responsable commercial</label>
+     <select id="ob-com">
+      <option value="">— Aucun —</option>
+      ${emps.filter(e=>e.actif).map(e=>`<option value="${e.id}" ${o.commercialId===e.id?'selected':''}>${esc(e.nom)}</option>`).join('')}
+     </select></div>
+   </div>
+   <div class="fld"><label>Remarques / Stratégie</label>
+    <textarea id="ob-rem" rows="2">${esc(o.remarques||'')}</textarea></div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveObjectif('${id||''}')">💾 Enregistrer</button>`,true);
+}
+async function saveObjectif(id){
+  const per=val('ob-per');if(!per){toast('Période requise','r');return;}
+  const o=id?await dbGet('objectifs_com',id):{id:uid()};
+  Object.assign(o,{
+    periode:per,caObjectif:num('ob-ca'),margeObjectif:num('ob-mg'),
+    budgetMkg:num('ob-bm'),visitesObjectif:num('ob-vt'),
+    commandesObjectif:num('ob-nc'),commercialId:val('ob-com'),
+    remarques:val('ob-rem')
+  });
+  await dbPut('objectifs_com',o);
+  closeModal();toast('Objectif enregistré ✅');mkgRender('objectifs');
+}
+function delObjectif(id){confirmDel('Supprimer cet objectif ?',
+  `async()=>{await dbDel('objectifs_com','${id}');toast('Objectif supprimé');mkgRender('objectifs');}`);}
+
+/* ══════════════════════════════════════════════
+   ONGLET 4 — ANALYSE ROI DÉTAILLÉE
+   ══════════════════════════════════════════════ */
+async function mkgRoi(box){
+  const acts=await dbAll('actions_mkg');
+  const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const prods=await dbAll('produits');
+  const depenses=await dbAll('depenses');
+  const emps=await dbAll('employes');
+  const an=new Date().getFullYear();
+
+  // ── CA & Marge réels ERP ──
+  const caTotal=facs.reduce((a,f)=>a+f.totalHT,0);
+  let margeBrute=0;
+  facs.forEach(f=>(f.lignes||[]).forEach(l=>{
+    const p=prods.find(x=>x.id===l.produitId);
+    if(p)margeBrute+=l.totalHT-l.qte*(p.prixAchat||0);
+  }));
+
+  // ── Charges opérationnelles (dépenses ERP) ──
+  const chargesOp=depenses.filter(d=>(d.date||'').startsWith(String(an))).reduce((a,d)=>a+(d.montant||0),0);
+  const masseS=emps.filter(e=>e.actif).reduce((a,e)=>a+e.brut*e.etp,0)*12;
+
+  // ── Investissement marketing total ──
+  const investMkg=acts.reduce((a,x)=>a+(x.depensesReelles||0),0);
+  const caAttrib=acts.reduce((a,x)=>a+(x.caGenere||0),0);
+
+  // ── Calculs ROI ──
+  const roiMkg=investMkg>0?((caAttrib-investMkg)/investMkg*100):0;
+  const tauxMarge=caTotal>0?(margeBrute/caTotal*100):0;
+  const chargesTotal=chargesOp+masseS+investMkg;
+  const resultatNet=caTotal-chargesTotal;
+  const roiGlobal=chargesTotal>0?(resultatNet/chargesTotal*100):0;
+  const breakeven=chargesTotal>0?chargesTotal:0;
+  const margeSecu=caTotal>0?((caTotal-breakeven)/caTotal*100):0;
+
+  // ── Top 5 actions rentables ──
+  const actsCloturees=acts.filter(a=>a.statut==='cloturee'&&a.depensesReelles>0&&a.caGenere>0);
+  actsCloturees.sort((a,b)=>{
+    const rA=(a.caGenere-a.depensesReelles)/a.depensesReelles;
+    const rB=(b.caGenere-b.depensesReelles)/b.depensesReelles;
+    return rB-rA;
+  });
+
+  // ── Efficacité budget mkg ──
+  const pctMkgCA=caTotal>0?(investMkg/caTotal*100):0;
+
+  box.innerHTML=`
+  <!-- Ratios clés -->
+  <div class="card" style="background:linear-gradient(135deg,#1d3f6e 0%,#1f7a3d 100%);color:#fff;margin-bottom:14px">
+   <div class="card-h" style="color:#fff">🏆 Ratios Financiers Globaux — ${an}</div>
+   <div class="row" style="gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:120px;text-align:center;background:rgba(255,255,255,.12);border-radius:8px;padding:12px">
+     <div style="font-size:11px;opacity:.8;font-weight:600">CA TOTAL HT</div>
+     <div style="font-size:22px;font-weight:900">${FCFA(caTotal)}</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center;background:rgba(255,255,255,.12);border-radius:8px;padding:12px">
+     <div style="font-size:11px;opacity:.8;font-weight:600">MARGE BRUTE</div>
+     <div style="font-size:22px;font-weight:900">${FCFA(margeBrute)}</div>
+     <div style="font-size:10px;opacity:.7">${tauxMarge.toFixed(1)}% du CA</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center;background:rgba(255,255,255,.12);border-radius:8px;padding:12px">
+     <div style="font-size:11px;opacity:.8;font-weight:600">ROI MARKETING</div>
+     <div style="font-size:22px;font-weight:900;color:${roiMkg>=0?'#86efac':'#fca5a5'}">${roiMkg>=0?'+':''}${roiMkg.toFixed(1)}%</div>
+    </div>
+    <div style="flex:1;min-width:120px;text-align:center;background:rgba(255,255,255,.12);border-radius:8px;padding:12px">
+     <div style="font-size:11px;opacity:.8;font-weight:600">RÉSULTAT NET</div>
+     <div style="font-size:22px;font-weight:900;color:${resultatNet>=0?'#86efac':'#fca5a5'}">${FCFA(resultatNet)}</div>
+    </div>
+   </div>
+  </div>
+
+  <div class="row">
+   <!-- Décomposition des charges -->
+   <div class="card f">
+    <div class="card-h">🔍 Décomposition Coût → Rentabilité</div>
+    <table>
+     <tr><th>Composante</th><th class="right">Montant</th><th class="right">% CA</th></tr>
+     <tr><td class="bold txt-v">💼 Chiffre d'Affaires</td>
+      <td class="right bold txt-v">${FCFA(caTotal)}</td><td class="right">100%</td></tr>
+     <tr><td style="padding-left:16px">— Coût des marchandises</td>
+      <td class="right txt-r">${FCFA(caTotal-margeBrute)}</td>
+      <td class="right sm txt-m">${caTotal>0?((caTotal-margeBrute)/caTotal*100).toFixed(1):0}%</td></tr>
+     <tr style="background:#f0fdf4"><td class="bold">= Marge Brute</td>
+      <td class="right bold txt-v">${FCFA(margeBrute)}</td>
+      <td class="right">${tauxMarge.toFixed(1)}%</td></tr>
+     <tr><td style="padding-left:16px">— Charges personnel</td>
+      <td class="right txt-r">${FCFA(masseS)}</td>
+      <td class="right sm txt-m">${caTotal>0?(masseS/caTotal*100).toFixed(1):0}%</td></tr>
+     <tr><td style="padding-left:16px">— Dépenses opérationnelles</td>
+      <td class="right txt-r">${FCFA(chargesOp)}</td>
+      <td class="right sm txt-m">${caTotal>0?(chargesOp/caTotal*100).toFixed(1):0}%</td></tr>
+     <tr><td style="padding-left:16px">— Budget Marketing</td>
+      <td class="right txt-r">${FCFA(investMkg)}</td>
+      <td class="right sm txt-m">${pctMkgCA.toFixed(1)}%</td></tr>
+     <tr style="background:${resultatNet>=0?'#f0fdf4':'#fef2f2'}"><td class="bold">= Résultat Net</td>
+      <td class="right bold" style="color:${resultatNet>=0?'var(--ok)':'var(--rouge)'}">${FCFA(resultatNet)}</td>
+      <td class="right bold" style="color:${resultatNet>=0?'var(--ok)':'var(--rouge)'}">${caTotal>0?((resultatNet/caTotal)*100).toFixed(1):0}%</td></tr>
+    </table>
+    <!-- Jauge marge sécurité -->
+    <div style="margin-top:12px">
+     <div class="sm txt-m" style="margin-bottom:4px">Marge de sécurité (CA - Point mort) : <b>${margeSecu.toFixed(1)}%</b></div>
+     <div class="progress" style="height:10px">
+      <i style="width:${Math.max(0,Math.min(100,margeSecu))}%;background:${margeSecu>=20?'var(--ok)':margeSecu>=0?'var(--orange)':'var(--rouge)'}"></i>
+     </div>
+     <div class="sm txt-m" style="margin-top:3px">
+      ${margeSecu>=20?'✅ Bonne marge de sécurité':margeSecu>=5?'⚡ Marge acceptable, surveiller':margeSecu>=0?'⚠️ Marge faible — risque':'🚨 Point mort non atteint'}
+     </div>
+    </div>
+   </div>
+
+   <!-- Efficacité marketing -->
+   <div class="card f">
+    <div class="card-h">🎯 Efficacité Marketing</div>
+    <div class="row" style="gap:8px;margin-bottom:10px">
+     <div class="kpi f" style="padding:10px">
+      <div class="lab">Invest. Mkg / CA</div>
+      <div class="val sm">${pctMkgCA.toFixed(1)}%</div>
+      <div class="sub">${pctMkgCA<=5?'✅ Excellent':pctMkgCA<=10?'👍 Bon':pctMkgCA<=20?'⚠️ Élevé':'🚨 Trop élevé'}</div>
+     </div>
+     <div class="kpi f" style="padding:10px">
+      <div class="lab">CA attrib. Mkg</div>
+      <div class="val sm">${FCFA(caAttrib)}</div>
+      <div class="sub">${caTotal>0?((caAttrib/caTotal)*100).toFixed(0):0}% du CA total</div>
+     </div>
+    </div>
+    <div class="card-h" style="font-size:13px">📋 Recommandations</div>
+    <div style="font-size:12px;line-height:1.8;color:#475569">
+     ${roiMkg>50?'🟢 ROI Marketing excellent → Augmenter le budget sur les actions performantes':
+       roiMkg>0?'🟡 ROI positif → Optimiser les actions les moins rentables':
+       '🔴 ROI négatif → Réviser la stratégie marketing, réduire les actions improductives'}<br>
+     ${pctMkgCA<5?'🟢 Budget marketing bien maîtrisé (< 5% du CA)':
+       pctMkgCA<15?'🟡 Budget mkg dans la norme sectorielle (< 15%)':
+       '🔴 Budget mkg trop élevé → Chercher les synergies et économies d\'échelle'}<br>
+     ${tauxMarge>30?'🟢 Taux de marge brute sain (> 30%)':
+       tauxMarge>15?'🟡 Marge brute correcte, surveiller les coûts d\'achat':
+       '🔴 Marge brute faible → Renégocier les prix fournisseurs ou réviser les prix de vente'}<br>
+     ${margeSecu>20?'🟢 Activité bien au-dessus du point mort':
+       margeSecu>0?'🟡 Attention : faible marge de sécurité. Objectif : +20%':
+       '🔴 Urgent : CA insuffisant pour couvrir toutes les charges'}
+    </div>
+   </div>
+  </div>
+
+  <!-- Top actions rentables -->
+  <div class="card">
+   <div class="card-h">🏅 Top Actions Marketing par Rentabilité (clôturées)</div>
+   ${actsCloturees.length?`
+   <table>
+    <tr><th>#</th><th>Action</th><th>Type</th><th class="right">Investi</th><th class="right">CA Généré</th>
+     <th class="right">Gain Net</th><th class="right">ROI</th><th class="right">Contacts</th><th class="right">Conv.</th></tr>
+    ${actsCloturees.slice(0,10).map((a,i)=>{
+      const roi=((a.caGenere-a.depensesReelles)/a.depensesReelles*100);
+      const conv=a.clientsContactes>0?((a.commandesGenerees||0)/a.clientsContactes*100):0;
+      const medals=['🥇','🥈','🥉'];
+      return `<tr>
+       <td class="center bold">${medals[i]||i+1}</td>
+       <td><b>${esc(a.titre)}</b><br><span class="sm txt-m">${esc(a.zone||'')} • ${a.dateDebut||''}</span></td>
+       <td class="sm">${MKG_TYPES[a.type]||a.type}</td>
+       <td class="right">${FCFA(a.depensesReelles)}</td>
+       <td class="right txt-v bold">${FCFA(a.caGenere)}</td>
+       <td class="right bold ${a.caGenere-a.depensesReelles>=0?'txt-v':'txt-r'}">${FCFA(a.caGenere-a.depensesReelles)}</td>
+       <td class="right bold" style="font-size:15px;color:${roi>=0?'var(--ok)':'var(--rouge)'}">${roi>=0?'+':''}${roi.toFixed(0)}%</td>
+       <td class="right">${FCFA0(a.clientsContactes||0)}</td>
+       <td class="right">${conv.toFixed(1)}%</td>
+      </tr>`;}).join('')}
+   </table>`
+   :'<div class="empty">Clôturez des actions marketing pour voir leur classement ROI ici</div>'}
+  </div>`;
 }
 
 /* ====== INIT ====== */
