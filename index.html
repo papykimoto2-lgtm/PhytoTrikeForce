@@ -2451,9 +2451,9 @@ let DB, STATE={user:null,depot:null,page:'dashboard'};
 const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','clients',
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
-'missions','conseils','rapports','seq'];
+'missions','conseils','rapports','depenses','seq'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',2);
+  const r=indexedDB.open('PSF_ERP',3);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -2630,8 +2630,8 @@ const NAV=[
    ['rapports','📝','Rapports hebdo']]],
  ['⑥ Ventes & Distribution',[['commandes','🛒','Commandes'],['livraisons','🚚','Distribution']]],
  ['⑦ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
- ['⑧ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['compta','📒','Comptabilité'],
-   ['fiscal','🏛️','Déclarations']]],
+ ['⑧ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
+   ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations']]],
  ['⑨ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
 function buildNav(){
@@ -2950,23 +2950,26 @@ PAGES.appro=async()=>{
       <td class="right">${FCFA(c.totalHT)}</td>
       <td><span class="tag ${({brouillon:'t-gris',envoyee:'t-bleu',recue:'t-vert'})[c.statut]}">${c.statut}</span></td>
       <td>${c.statut!=='recue'?`<button class="btn-b btn-sm" onclick="recevoirCmd('${c.id}')">Réceptionner</button>`:''}
-          <button class="btn-g btn-sm" onclick="voirCmdAchat('${c.id}')">Voir</button></td></tr>`;}).join('')
+          ${c.statut!=='recue'?`<button class="btn-g btn-sm" onclick="cmdAchatModal('${c.id}')">Éditer</button>`:''}
+          <button class="btn-g btn-sm" onclick="voirCmdAchat('${c.id}')">Voir</button>
+          <button class="btn-r btn-sm" onclick="supprimerCmdAchat('${c.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=6 class="empty">Aucune commande</td></tr>'}
    </table></div>`);
 };
 let LIGNES=[];
-async function cmdAchatModal(){const fs=await dbAll('fournisseurs');LIGNES=[];
-  modal('Nouvelle commande achat',`
+async function cmdAchatModal(id){const fs=await dbAll('fournisseurs');
+  let c=id?await dbGet('cmdAchat',id):null;LIGNES=c?c.lignes.map(l=>Object.assign({},l)):[];
+  modal(id?'Modifier '+c.num:'Nouvelle commande achat',`
    <div class="row"><div class="fld f"><label>Fournisseur</label><select id="ca-fourn">
-     ${fs.map(f=>`<option value="${f.id}">${esc(f.nom)} (${esc(f.pays)})</option>`).join('')}</select></div>
-   <div class="fld f"><label>Date</label><input id="ca-date" type="date" value="${today()}"></div></div>
+     ${fs.map(f=>`<option value="${f.id}" ${c&&c.fournId===f.id?'selected':''}>${esc(f.nom)} (${esc(f.pays)})</option>`).join('')}</select></div>
+   <div class="fld f"><label>Date</label><input id="ca-date" type="date" value="${c?c.date:today()}"></div></div>
    <div class="card-h" style="margin-top:8px">Lignes</div>
    <div id="ca-lignes"></div>
    <button class="btn-g btn-sm" onclick="addLigneAchat()" style="margin-top:8px">+ Ligne</button>
    <div class="right bold" id="ca-total" style="margin-top:12px;font-size:16px"></div>`,
    `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-p" onclick="saveCmdAchat()">Enregistrer</button>`,true);
-  addLigneAchat();
+    <button class="btn-p" onclick="saveCmdAchat('${id||''}')">Enregistrer</button>`,true);
+  if(LIGNES.length)renderLignesAchat();else addLigneAchat();
 }
 async function addLigneAchat(){const prods=await dbAll('produits');
   LIGNES.push({produitId:prods[0].id,qte:0,pu:prods[0].prixAchat});renderLignesAchat();}
@@ -2985,13 +2988,12 @@ async function renderLignesAchat(){const prods=await dbAll('produits');
   document.getElementById('ca-total').textContent='Total HT : '+FCFA(tot);
 }
 async function syncPA(i){const p=await dbGet('produits',LIGNES[i].produitId);LIGNES[i].pu=p.prixAchat;}
-async function saveCmdAchat(){
+async function saveCmdAchat(id){
   const lignes=LIGNES.filter(l=>l.qte>0);if(!lignes.length){toast('Aucune ligne');return;}
-  const num=await nextSeq('cmdAchat');
   const totalHT=lignes.reduce((a,l)=>a+l.qte*l.pu,0);
-  await dbPut('cmdAchat',{id:uid(),num:'CA-'+num,fournId:val('ca-fourn'),date:val('ca-date'),
-    lignes,totalHT,statut:'envoyee'});
-  closeModal();toast('Commande créée');go('appro');
+  if(id){const c=await dbGet('cmdAchat',id);Object.assign(c,{fournId:val('ca-fourn'),date:val('ca-date'),lignes,totalHT});await dbPut('cmdAchat',c);}
+  else{const num=await nextSeq('cmdAchat');await dbPut('cmdAchat',{id:uid(),num:'CA-'+num,fournId:val('ca-fourn'),date:val('ca-date'),lignes,totalHT,statut:'envoyee'});}
+  closeModal();toast('Commande enregistrée');go('appro');
 }
 async function recevoirCmd(id){const c=await dbGet('cmdAchat',id);
   modal('Réception — '+c.num,`<p class="sm txt-m">Réception au dépôt : <b>${esc((await dbAll('depots')).find(d=>d.id===STATE.depot)?.nom)}</b></p>
@@ -3083,23 +3085,26 @@ PAGES.commandes=async()=>{
      <td><span class="tag ${({devis:'t-gris',confirmee:'t-bleu',livree:'t-vert',facturee:'t-violet'})[c.statut]}">${c.statut}</span></td>
      <td>${c.statut==='confirmee'?`<button class="btn-b btn-sm" onclick="livrerCmd('${c.id}')">Livrer</button>`:''}
         ${c.statut==='livree'?`<button class="btn-p btn-sm" onclick="facturerCmd('${c.id}')">Facturer</button>`:''}
-        <button class="btn-g btn-sm" onclick="voirCmdClient('${c.id}')">Voir</button></td></tr>`;}).join('')
+        ${(c.statut==='devis'||c.statut==='confirmee')?`<button class="btn-g btn-sm" onclick="cmdClientModal('${c.id}')">Éditer</button>`:''}
+        <button class="btn-g btn-sm" onclick="voirCmdClient('${c.id}')">Voir</button>
+        <button class="btn-r btn-sm" onclick="supprimerCmdClient('${c.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=6 class="empty">Aucune commande</td></tr>'}
    </table></div>`);
 };
-async function cmdClientModal(){const cls=await dbAll('clients');LIGNES=[];
-  modal('Nouvelle commande client',`
+async function cmdClientModal(id){const cls=await dbAll('clients');
+  let c=id?await dbGet('cmdClient',id):null;LIGNES=c?c.lignes.map(l=>Object.assign({},l)):[];
+  modal(id?'Modifier '+c.num:'Nouvelle commande client',`
    <div class="row"><div class="fld f"><label>Client</label><select id="cc-client" onchange="renderLignesVente()">
-     ${cls.map(c=>`<option value="${c.id}" data-tarif="${c.tarif}">${esc(c.nom)} — ${c.tarif}</option>`).join('')}</select></div>
-   <div class="fld f"><label>Date</label><input id="cc-date" type="date" value="${today()}"></div></div>
+     ${cls.map(cl=>`<option value="${cl.id}" data-tarif="${cl.tarif}" ${c&&c.clientId===cl.id?'selected':''}>${esc(cl.nom)} — ${cl.tarif}</option>`).join('')}</select></div>
+   <div class="fld f"><label>Date</label><input id="cc-date" type="date" value="${c?c.date:today()}"></div></div>
    <div class="card-h" style="margin-top:8px">Lignes</div>
    <div id="cc-lignes"></div>
    <button class="btn-g btn-sm" onclick="addLigneVente()" style="margin-top:8px">+ Ligne</button>
    <div class="right bold" id="cc-total" style="margin-top:12px;font-size:16px"></div>`,
    `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-b" onclick="saveCmdClient('devis')">Devis</button>
-    <button class="btn-p" onclick="saveCmdClient('confirmee')">Confirmer</button>`,true);
-  addLigneVente();
+    <button class="btn-b" onclick="saveCmdClient('devis','${id||''}')">${id?'Enregistrer (devis)':'Devis'}</button>
+    <button class="btn-p" onclick="saveCmdClient('confirmee','${id||''}')">${id?'Enregistrer (confirmée)':'Confirmer'}</button>`,true);
+  if(LIGNES.length){LIGNES.forEach(l=>l.manuel=true);renderLignesVente();}else addLigneVente();
 }
 function tarifPrix(p,tarif){return tarif==='detail'?p.prixDetail:(tarif==='moyen'?p.prixMoyen:p.prixGros);}
 async function addLigneVente(){const prods=await dbAll('produits');
@@ -3123,13 +3128,13 @@ async function renderLignesVente(){const prods=await dbAll('produits');
   const tot=LIGNES.reduce((a,l)=>a+l.qte*l.pu,0);
   document.getElementById('cc-total').textContent='Total HT : '+FCFA(tot);
 }
-async function saveCmdClient(statut){const lignes=LIGNES.filter(l=>l.qte>0);
+async function saveCmdClient(statut,id){const lignes=LIGNES.filter(l=>l.qte>0);
   if(!lignes.length){toast('Aucune ligne');return;}
   const prods=await dbAll('produits');
   lignes.forEach(l=>{const p=prods.find(x=>x.id===l.produitId);l.tva=p.tva;l.totalHT=l.qte*l.pu;});
-  const num=await nextSeq('cmdClient');const totalHT=lignes.reduce((a,l)=>a+l.totalHT,0);
-  await dbPut('cmdClient',{id:uid(),num:'CC-'+num,clientId:val('cc-client'),date:val('cc-date'),
-    depotId:STATE.depot,lignes,totalHT,statut});
+  const totalHT=lignes.reduce((a,l)=>a+l.totalHT,0);
+  if(id){const c=await dbGet('cmdClient',id);Object.assign(c,{clientId:val('cc-client'),date:val('cc-date'),lignes,totalHT,statut});await dbPut('cmdClient',c);}
+  else{const num=await nextSeq('cmdClient');await dbPut('cmdClient',{id:uid(),num:'CC-'+num,clientId:val('cc-client'),date:val('cc-date'),depotId:STATE.depot,lignes,totalHT,statut});}
   closeModal();toast('Commande '+statut);go('commandes');
 }
 async function livrerCmd(id){const c=await dbGet('cmdClient',id);
@@ -3178,7 +3183,8 @@ PAGES.livraisons=async()=>{
     ${lvs.map(l=>{const cl=cls.find(x=>x.id===l.clientId),e=emps.find(x=>x.id===l.commercialId);
      return `<tr><td class="bold">${esc(l.num)}</td><td>${fmtD(l.date)}</td><td>${esc(cl?.nom||'?')}</td>
      <td>${esc(e?.nom||'—')}</td><td><span class="tag t-bleu">${esc(l.transport)}</span></td>
-     <td><button class="btn-g btn-sm" onclick="imprimerBL('${l.id}')">🖨️ BL</button></td></tr>`;}).join('')
+     <td><button class="btn-g btn-sm" onclick="imprimerBL('${l.id}')">🖨️ BL</button>
+         <button class="btn-r btn-sm" onclick="supprimerLivraison('${l.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=6 class="empty">Aucune livraison</td></tr>'}
     </table></div>`);
 };
@@ -3210,9 +3216,11 @@ PAGES.factures=async()=>{
      <td class="right ${reste>0?'txt-r':'txt-v'}">${FCFA(f.regle||0)}</td>
      <td><span class="tag ${reste<=0?'t-vert':(f.regle?'t-orange':'t-rouge')}">${reste<=0?'Payée':(f.regle?'Partiel':'Impayée')}</span></td>
      <td>${tFNE&&f.statutFNE!=='transmise'?`<button class="btn-b btn-sm" onclick="transmettreFNE('${f.id}')">Transmettre</button>`:''}
-        ${reste>0?`<button class="btn-p btn-sm" onclick="reglerFacture('${f.id}')">Régler</button>`:''}
-        ${reste>0?`<button class="btn-g btn-sm" onclick="planEcheancierModal('${f.id}')" title="Facilité de paiement">📅</button>`:''}
-        <button class="btn-g btn-sm" onclick="imprimerFacture('${f.id}')">🖨️</button></td></tr>`;}).join('')
+        ${reste>0&&f.statut!=='annulee'?`<button class="btn-p btn-sm" onclick="reglerFacture('${f.id}')">Régler</button>`:''}
+        ${reste>0&&f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="planEcheancierModal('${f.id}')" title="Facilité de paiement">📅</button>`:''}
+        <button class="btn-g btn-sm" onclick="imprimerFacture('${f.id}')">🖨️</button>
+        ${f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="annulerFacture('${f.id}')">Annuler</button>`:''}
+        <button class="btn-r btn-sm" onclick="supprimerFacture('${f.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=10 class="empty">Aucune facture</td></tr>'}
    </table></div>`);
 };
@@ -3316,10 +3324,9 @@ async function reglerFacture(id){const f=await dbGet('factures',id);const reste=
 async function saveReglement(id){const f=await dbGet('factures',id);const mt=num('rg-mt');const cpt=val('rg-mode');
   if(mt<=0)return;f.regle=(f.regle||0)+mt;if(f.regle>=f.totalTTC)f.statut='payee';await dbPut('factures',f);
   const cl=await dbGet('clients',f.clientId);
-  await dbPut('reglements',{id:uid(),factureId:id,montant:mt,mode:cpt,date:today()});
-  // écriture encaissement : trésorerie D / client C
-  await ecrire('TRE',today(),'Règlement '+f.num,[
+  const ec=await ecrire('TRE',today(),'Règlement '+f.num,[
     {compte:cpt,debit:mt,credit:0},{compte:cl.compte||'4111',debit:0,credit:mt}],f.num);
+  await dbPut('reglements',{id:uid(),factureId:id,montant:mt,mode:cpt,date:today(),ecritureId:ec.id});
   closeModal();toast('Encaissement enregistré');go('factures');
 }
 async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=await dbGet('clients',f.clientId);
@@ -3364,13 +3371,14 @@ PAGES.compta=async()=>{
 function tabCompta(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');tabComptaRender(t);}
 async function tabComptaRender(t){const box=document.getElementById('compta-body');
   if(t==='journal'){const ecs=(await dbAll('ecritures')).sort((a,b)=>b.id<a.id?-1:1).slice(0,60);
-    box.innerHTML=`<div class="card"><table><tr><th>Date</th><th>Jrnl</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th class="right">Débit</th><th class="right">Crédit</th></tr>
+    box.innerHTML=`<div class="card"><table><tr><th>Date</th><th>Jrnl</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th class="right">Débit</th><th class="right">Crédit</th><th></th></tr>
      ${ecs.flatMap(e=>e.lignes.map((l,i)=>`<tr>
       <td>${i===0?fmtD(e.date):''}</td><td>${i===0?`<span class="tag t-gris">${e.journal}</span>`:''}</td>
       <td class="sm">${i===0?esc(e.piece):''}</td><td class="sm">${i===0?esc(e.libelle):''}</td>
       <td>${l.compte}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
-      <td class="right">${l.credit?FCFA0(l.credit):''}</td></tr>`)).join('')
-     ||'<tr><td colspan=7 class="empty">Aucune écriture</td></tr>'}</table></div>`;
+      <td class="right">${l.credit?FCFA0(l.credit):''}</td>
+      <td>${i===0?`<button class="btn-r btn-sm" onclick="supprimerEcriture('${e.id}')">×</button>`:''}</td></tr>`)).join('')
+     ||'<tr><td colspan=8 class="empty">Aucune écriture</td></tr>'}</table></div>`;
   }else if(t==='grandlivre'){const bal=await balance();
     box.innerHTML=`<div class="card"><table><tr><th>Compte</th><th>Libellé</th><th class="right">Débit</th><th class="right">Crédit</th><th class="right">Solde</th></tr>
      ${bal.filter(b=>b.debit||b.credit).map(b=>`<tr><td class="bold">${b.num}</td><td>${esc(b.lib)}</td>
@@ -3455,12 +3463,13 @@ PAGES.tresorerie=async()=>{
     <div class="kpi rouge"><div class="lab">Trésorerie totale</div><div class="val">${FCFA(sld(caisse)+sld(banque)+sld(momo))}</div></div>
    </div>
    <div class="card"><div class="card-h">Derniers encaissements</div>
-    <table><tr><th>Date</th><th>Facture</th><th>Client</th><th>Mode</th><th class="right">Montant</th></tr>
+    <table><tr><th>Date</th><th>Facture</th><th>Client</th><th>Mode</th><th class="right">Montant</th><th></th></tr>
     ${regs.map(r=>{const f=facs.find(x=>x.id===r.factureId);const cl=cls.find(x=>x.id===f?.clientId);
      const md={571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode];
      return `<tr><td>${fmtD(r.date)}</td><td>${esc(f?.num||'')}</td><td>${esc(cl?.nom||'')}</td>
-     <td><span class="tag t-bleu">${md}</span></td><td class="right bold txt-v">${FCFA(r.montant)}</td></tr>`;}).join('')
-    ||'<tr><td colspan=5 class="empty">Aucun encaissement</td></tr>'}</table></div>`);
+     <td><span class="tag t-bleu">${md}</span></td><td class="right bold txt-v">${FCFA(r.montant)}</td>
+     <td><button class="btn-r btn-sm" onclick="annulerReglement('${r.id}')">Annuler</button></td></tr>`;}).join('')
+    ||'<tr><td colspan=6 class="empty">Aucun encaissement</td></tr>'}</table></div>`);
 };
 
 /* ---- ANALYTIQUE ---- */
@@ -4376,6 +4385,114 @@ async function previewEch(id){const f=await dbGet('factures',id);const reste=f.t
 }
 async function saveEcheancier(id){const f=await dbGet('factures',id);f.echeancier=ECH.slice();await dbPut('factures',f);
   closeModal();toast('Échéancier enregistré ('+ECH.length+' échéances)');go('factures');}
+
+
+/* ====== MODIFICATION / SUPPRESSION GÉNÉRALISÉE ====== */
+async function delEcriture(id){const e=await dbGet('ecritures',id);if(!e)return;
+  for(const l of e.lignes){const c=await dbGet('comptes',l.compte);
+    if(c){c.solde=(c.solde||0)-(l.debit||0)+(l.credit||0);await dbPut('comptes',c);}}
+  await dbDel('ecritures',id);}
+async function delEcrituresPiece(piece){if(!piece)return;
+  const ecs=(await dbAll('ecritures')).filter(e=>e.piece===piece);
+  for(const e of ecs)await delEcriture(e.id);}
+function supprimerEcriture(id){confirmDel('Supprimer cette écriture ? Les soldes des comptes seront réajustés.',
+  `async()=>{await delEcriture('${id}');toast('Écriture supprimée');go('compta')}`);}
+
+async function supprimerCmdAchat(id){const c=await dbGet('cmdAchat',id);
+  confirmDel('Supprimer la commande achat '+c.num+' ?'+(c.statut==='recue'?" L'écriture d'achat liée sera annulée (le stock reçu n'est pas retiré).":''),
+   `async()=>{await delEcrituresPiece('${c.num}');await dbDel('cmdAchat','${id}');toast('Commande supprimée');go('appro')}`);}
+async function supprimerCmdClient(id){const c=await dbGet('cmdClient',id);
+  confirmDel('Supprimer la commande client '+c.num+' ? (livraisons/factures éventuelles non supprimées)',
+   `async()=>{await dbDel('cmdClient','${id}');toast('Commande supprimée');go('commandes')}`);}
+
+async function supprimerLivraison(id){const l=await dbGet('livraisons',id);
+  confirmDel('Supprimer le BL '+l.num+' ? Les quantités seront réintégrées en stock.',
+   `async()=>{const l=await dbGet('livraisons','${id}');
+     for(const x of l.lignes)await mouvStock(x.produitId,STATE.depot,x.qte,'entree','Annul. '+l.num);
+     await dbDel('livraisons','${id}');toast('Livraison supprimée, stock réintégré');go('livraisons')}`);}
+
+async function annulerFacture(id){const f=await dbGet('factures',id);
+  confirmDel('Annuler la facture '+f.num+' ? Extourne comptable + annulation des règlements'+(!f.cmdId?' + réintégration du stock':'')+'.',
+   `async()=>{const f=await dbGet('factures','${id}');
+     await delEcrituresPiece(f.num);
+     const regs=(await dbAll('reglements')).filter(r=>r.factureId==='${id}');for(const r of regs)await dbDel('reglements',r.id);
+     if(!f.cmdId){for(const l of f.lignes)await mouvStock(l.produitId,STATE.depot,l.qte,'entree','Annul. '+f.num);}
+     f.statut='annulee';f.regle=0;f.echeancier=[];await dbPut('factures',f);
+     toast('Facture annulée (extournée)');go('factures')}`);}
+async function supprimerFacture(id){const f=await dbGet('factures',id);
+  confirmDel('Supprimer définitivement la facture '+f.num+' ? Écritures et règlements liés supprimés'+(!f.cmdId&&f.statut!=='annulee'?', stock réintégré':'')+'.',
+   `async()=>{const f=await dbGet('factures','${id}');
+     await delEcrituresPiece(f.num);
+     const regs=(await dbAll('reglements')).filter(r=>r.factureId==='${id}');for(const r of regs)await dbDel('reglements',r.id);
+     if(!f.cmdId&&f.statut!=='annulee'){for(const l of f.lignes)await mouvStock(l.produitId,STATE.depot,l.qte,'entree','Suppr. '+f.num);}
+     await dbDel('factures','${id}');toast('Facture supprimée');go('factures')}`);}
+
+async function annulerReglement(id){const r=await dbGet('reglements',id);
+  confirmDel('Annuler cet encaissement de '+FCFA(r.montant)+' ?',
+   `async()=>{const r=await dbGet('reglements','${id}');
+     if(r.ecritureId)await delEcriture(r.ecritureId);
+     const f=await dbGet('factures',r.factureId);if(f){f.regle=Math.max(0,(f.regle||0)-r.montant);if(f.regle<f.totalTTC&&f.statut==='payee')f.statut='emise';await dbPut('factures',f);}
+     await dbDel('reglements','${id}');toast('Encaissement annulé');go('tresorerie')}`);}
+
+/* ====== DÉPENSES & CHARGES ====== */
+const DEP_CATS=[
+ ['605','Eau & électricité'],['622','Locations (bureau/entrepôt)'],['624','Entretien & réparations'],
+ ['625','Assurances'],['627','Transport / carburant'],['628','Télécommunications'],
+ ['6181','Fournitures de bureau'],['631','Frais bancaires'],['633','Honoraires'],
+ ['6471','Publicité / promotion'],['638','Frais de mission / divers'],['641','Impôts et taxes']];
+PAGES.depenses=async()=>{
+  const dps=(await dbAll('depenses')).sort((a,b)=>b.date<a.date?1:-1);
+  const total=dps.reduce((a,d)=>a+d.ttc,0);
+  H(pageH('Dépenses & Charges','<button class="btn-p" onclick="depenseModal()">+ Dépense</button>')+`
+   <div class="grid kpis" style="margin-bottom:16px"><div class="kpi rouge"><div class="lab">Total dépenses enregistrées</div><div class="val">${FCFA(total)}</div></div></div>
+   <div class="card"><table><tr><th>N°</th><th>Date</th><th>Catégorie</th><th>Libellé</th><th class="right">HT</th><th class="right">TVA</th><th class="right">TTC</th><th>Paiement</th><th></th></tr>
+   ${dps.map(d=>`<tr><td class="bold">${esc(d.num)}</td><td>${fmtD(d.date)}</td>
+     <td><span class="tag t-gris">${d.categorie}</span> ${esc((DEP_CATS.find(c=>c[0]===d.categorie)||[])[1]||'')}</td>
+     <td>${esc(d.libelle)}</td><td class="right">${FCFA(d.ht)}</td><td class="right">${FCFA(d.tva)}</td>
+     <td class="right bold">${FCFA(d.ttc)}</td><td class="sm">${({571:'Espèces',531:'Mobile Money',521:'Banque',401:'À crédit'})[d.mode]||''}</td>
+     <td><button class="btn-g btn-sm" onclick="depenseModal('${d.id}')">Éditer</button>
+         <button class="btn-r btn-sm" onclick="supprimerDepense('${d.id}')">Suppr.</button></td></tr>`).join('')
+   ||'<tr><td colspan=9 class="empty">Aucune dépense enregistrée</td></tr>'}</table></div>`);
+};
+async function depenseModal(id){const d=id?await dbGet('depenses',id):{date:today(),categorie:'627',tvaTaux:18,mode:'571'};
+  const fs=await dbAll('fournisseurs');
+  modal(id?'Modifier dépense '+d.num:'Nouvelle dépense',`
+   <div class="row"><div class="fld f"><label>Date</label><input id="dp-date" type="date" value="${d.date||today()}"></div>
+    <div class="fld f"><label>Catégorie (compte SYSCOHADA)</label><select id="dp-cat">
+      ${DEP_CATS.map(([c,l])=>`<option value="${c}" ${d.categorie===c?'selected':''}>${c} — ${l}</option>`).join('')}</select></div></div>
+   <div class="fld"><label>Libellé</label><input id="dp-lib" value="${esc(d.libelle||'')}" placeholder="Facture SODECI mars, carburant tournée..."></div>
+   <div class="row"><div class="fld f"><label>Montant HT</label><input id="dp-ht" type="number" value="${d.ht||0}" oninput="dpCalc()"></div>
+    <div class="fld f"><label>TVA %</label><select id="dp-tva" onchange="dpCalc()">
+      <option value="18" ${d.tvaTaux===18?'selected':''}>18%</option><option value="9" ${d.tvaTaux===9?'selected':''}>9%</option><option value="0" ${d.tvaTaux===0?'selected':''}>0% / exo</option></select></div>
+    <div class="fld f"><label>TTC</label><input id="dp-ttc" disabled value="${FCFA0(d.ttc||0)}"></div></div>
+   <div class="row"><div class="fld f"><label>Mode de paiement</label><select id="dp-mode">
+      ${[['571','Espèces (caisse)'],['531','Mobile Money'],['521','Banque'],['401','À crédit fournisseur']].map(([v,l])=>`<option value="${v}" ${d.mode===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Fournisseur (option)</label><select id="dp-fourn"><option value="">—</option>
+      ${fs.map(f=>`<option value="${f.id}" ${d.fournId===f.id?'selected':''}>${esc(f.nom)}</option>`).join('')}</select></div></div>`,
+   `${id?`<button class="btn-r" style="margin-right:auto" onclick="supprimerDepense('${id}')">Supprimer</button>`:''}
+    <button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveDepense('${id||''}')">Enregistrer</button>`);
+  dpCalc();
+}
+function dpCalc(){const ht=num('dp-ht'),tx=num('dp-tva');const e=document.getElementById('dp-ttc');if(e)e.value=FCFA0(ht*(1+tx/100));}
+async function saveDepense(id){const ht=num('dp-ht'),tx=num('dp-tva');const tva=Math.round(ht*tx/100);const ttc=ht+tva;
+  if(ht<=0){toast('Montant invalide');return;}
+  const cat=val('dp-cat'),mode=val('dp-mode');
+  const d=id?await dbGet('depenses',id):{id:uid()};
+  if(!d.num)d.num='DEP-'+await nextSeq('depense');
+  if(id)await delEcrituresPiece(d.num);
+  Object.assign(d,{date:val('dp-date'),categorie:cat,libelle:val('dp-lib'),ht,tvaTaux:tx,tva,ttc,mode,fournId:val('dp-fourn')});
+  await dbPut('depenses',d);
+  await ensureCompte(cat,(DEP_CATS.find(c=>c[0]===cat)||[])[1]||'Charge','charge');
+  const lignes=[{compte:cat,debit:ht,credit:0}];
+  if(tva)lignes.push({compte:'4452',debit:tva,credit:0});
+  lignes.push({compte:mode,debit:0,credit:ttc});
+  await ecrire('DEP',d.date,'Dépense '+d.num+' — '+(d.libelle||''),lignes,d.num);
+  closeModal();toast('Dépense enregistrée + comptabilisée');go('depenses');
+}
+async function supprimerDepense(id){const d=await dbGet('depenses',id);
+  confirmDel('Supprimer la dépense '+d.num+' ? Son écriture comptable sera annulée.',
+   `async()=>{const d=await dbGet('depenses','${id}');await delEcrituresPiece(d.num);await dbDel('depenses','${id}');toast('Dépense supprimée');go('depenses')}`);}
 
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
