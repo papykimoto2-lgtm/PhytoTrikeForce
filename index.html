@@ -2626,7 +2626,7 @@ const NAV=[
  ['Ventes',[['clients','👥','Clients'],['commandes','🛒','Commandes'],
    ['livraisons','🚚','Distribution'],['factures','🧾','Facturation']]],
  ['Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
-   ['rapports','📝','Rapports hebdo']]],
+   ['rapports','📝','Rapports hebdo'],['carte','📍','Carte & Itinéraires']]],
  ['Comptabilité',[['compta','📒','Comptabilité'],['tresorerie','💰','Trésorerie'],
    ['fiscal','🏛️','Déclarations']]],
  ['Ressources',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
@@ -2691,46 +2691,51 @@ const pageH=(t,btn)=>`<div class="page-h"><h1>${t}</h1><div class="sp"></div>${b
 
 /* ---- DASHBOARD ---- */
 PAGES.dashboard=async()=>{
-  const facs=await dbAll('factures'),prods=await dbAll('produits'),stk=await dbAll('stock');
+  const facs=await dbAll('factures'),prods=await dbAll('produits');
   const an=new Date().getFullYear();
-  const facsAn=facs.filter(f=>f.statut!=='annulee'&&(f.date||'').startsWith(an));
+  const facsAn=facs.filter(f=>f.statut!=='annulee'&&(f.date||'').startsWith(String(an)));
   const ca=facsAn.reduce((a,f)=>a+f.totalHT,0);
   const encaisse=facsAn.reduce((a,f)=>a+(f.regle||0),0);
   const creances=facsAn.reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);
   const valo=await valoStock(null);
-  // alertes stock
-  let alertes=[];
-  for(const p of prods){const q=await stockProduit(p.id,null);if(q<=p.seuil)alertes.push({p,q});}
-  // top produits
+  let alertes=[];for(const p of prods){const q=await stockProduit(p.id,null);if(q<=p.seuil)alertes.push({p,q});}
   const ventes={};facsAn.forEach(f=>(f.lignes||[]).forEach(l=>{ventes[l.produitId]=(ventes[l.produitId]||0)+l.totalHT;}));
-  const top=Object.entries(ventes).map(([id,v])=>({p:prods.find(x=>x.id===id),v}))
-    .filter(x=>x.p).sort((a,b)=>b.v-a.v).slice(0,5);
+  const top=Object.entries(ventes).map(([id,v])=>({p:prods.find(x=>x.id===id),v})).filter(x=>x.p).sort((a,b)=>b.v-a.v).slice(0,5);
   const nonHom=prods.filter(p=>!p.homologue);
+  const missions=await dbAll('missions'),conseils=await dbAll('conseils'),livr=await dbAll('livraisons');
+  const misEnCours=missions.filter(m=>m.statut!=='cloturee').length;
+  const consOuverts=conseils.filter(c=>c.statut!=='resolu').length;
+  const fneATransmettre=facs.filter(f=>f.type==='fne'&&f.statutFNE!=='transmise').length;
   H(pageH('Tableau de bord')+`
   <div class="grid kpis">
     <div class="kpi vert"><div class="lab">Chiffre d'affaires ${an}</div><div class="val">${FCFA(ca)}</div><div class="sub">${facsAn.length} factures</div></div>
     <div class="kpi bleu"><div class="lab">Encaissé</div><div class="val">${FCFA(encaisse)}</div><div class="sub">Mobile Money + Banque + Caisse</div></div>
     <div class="kpi orange"><div class="lab">Créances clients</div><div class="val">${FCFA(creances)}</div><div class="sub">À recouvrer</div></div>
-    <div class="kpi rouge"><div class="lab">Valeur stock</div><div class="val">${FCFA(valo)}</div><div class="sub">Coût d'achat</div></div>
+    <div class="kpi rouge"><div class="lab">Valeur stock</div><div class="val">${FCFA(valo)}</div><div class="sub">Coût d'achat, tous dépôts</div></div>
+  </div>
+  <div class="grid kpis" style="margin-bottom:16px">
+    <div class="kpi bleu"><div class="lab">🗺️ Missions en cours</div><div class="val">${misEnCours}</div></div>
+    <div class="kpi vert"><div class="lab">🌱 Conseils ouverts</div><div class="val">${consOuverts}</div></div>
+    <div class="kpi orange"><div class="lab">📦 Produits à réappro</div><div class="val">${alertes.length}</div></div>
+    <div class="kpi rouge"><div class="lab">🧾 FNE à transmettre</div><div class="val">${fneATransmettre}</div></div>
   </div>
   <div class="row">
-    <div class="card f">
-      <div class="card-h">⚠️ Alertes stock (seuil)</div>
+    <div class="card f"><div class="card-h">⚠️ Alertes stock (seuil)</div>
       ${alertes.length?`<table><tr><th>Produit</th><th class="right">Stock</th><th class="right">Seuil</th><th></th></tr>
         ${alertes.map(a=>`<tr><td>${esc(a.p.nom)}</td><td class="right ${a.q<=0?'txt-r':'txt-m'}">${FCFA0(a.q)} ${a.p.unite}</td>
-        <td class="right txt-m">${FCFA0(a.p.seuil)}</td><td><span class="tag ${a.q<=0?'t-rouge':'t-orange'}">${a.q<=0?'Rupture':'Bas'}</span></td></tr>`).join('')}</table>`
+        <td class="right txt-m">${FCFA0(a.p.seuil)}</td><td><span class="tag ${a.q<=0?'t-rouge':'t-orange'}">${a.q<=0?'Rupture':'Bas'}</span></td></tr>`).join('')}</table>
+        <button class="btn-g btn-sm" style="margin-top:8px" onclick="go('stock')">→ Réapprovisionner</button>`
       :'<div class="empty">Aucune alerte ✓</div>'}
     </div>
-    <div class="card f">
-      <div class="card-h">🏆 Top produits (CA)</div>
-      ${top.length?`<table>${top.map(t=>`<tr><td>${esc(t.p.nom)}</td>
-        <td class="right bold">${FCFA(t.v)}</td></tr>`).join('')}</table>`
-      :'<div class="empty">Aucune vente</div>'}
+    <div class="card f"><div class="card-h">🏆 Top produits (CA)</div>
+      ${top.length?`<table>${top.map(t=>`<tr><td>${esc(t.p.nom)}</td><td class="right bold">${FCFA(t.v)}</td></tr>`).join('')}</table>`
+      :'<div class="empty">Aucune vente enregistrée</div>'}
     </div>
   </div>
   ${nonHom.length?`<div class="card"><div class="card-h">🚫 Produits non homologués (DPVCQ)</div>
     <p class="sm txt-m">Distribution interdite avant homologation Ministère Agriculture :</p>
-    <div style="margin-top:8px">${nonHom.map(p=>`<span class="tag t-rouge" style="margin:3px">${esc(p.nom)}</span>`).join('')}</div></div>`:''}`);
+    <div style="margin-top:8px">${nonHom.map(p=>`<span class="tag t-rouge" style="margin:3px">${esc(p.nom)}</span>`).join('')}</div></div>`:''}
+  <p class="sm txt-m">Tous les indicateurs sont calculés en temps réel à partir des transactions (factures, règlements, écritures, stock). Aucune valeur n'est figée.</p>`);
 };
 
 /* ---- PRODUITS ---- */
@@ -3045,6 +3050,7 @@ async function editClient(id){const c=id?await dbGet('clients',id):{type:'revend
       ${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo'].map(z=>`<option ${c.zone===z?'selected':''}>${z}</option>`).join('')}</select></div>
     <div class="fld f"><label>Ville</label><input id="c-ville" value="${esc(c.ville||'')}"></div>
     <div class="fld f"><label>Téléphone</label><input id="c-tel" value="${esc(c.tel||'')}"></div></div>
+   <div class="row"><div class="fld f"><label>Statut</label><select id="c-statut"><option value="client" ${c.statut!=='prospect'?'selected':''}>Client</option><option value="prospect" ${c.statut==='prospect'?'selected':''}>Prospect</option></select></div>    <div class="fld f"><label>Latitude GPS</label><input id="c-lat" value="${c.lat||''}" placeholder="auto si vide"></div>    <div class="fld f"><label>Longitude GPS</label><input id="c-lng" value="${c.lng||''}" placeholder="auto si vide"></div></div>
    <div class="row"><div class="fld f"><label>Compte comptable</label><input id="c-cpt" value="${esc(c.compte||'4111')}"></div>
     <div class="fld f"><label>NCC / IFU (pour FNE)</label><input id="c-ncc" value="${esc(c.ncc||'')}" placeholder="Numéro Compte Contribuable"></div>
     <div class="fld f"><label>Plafond crédit</label><input id="c-plaf" type="number" value="${c.plafond||0}"></div></div>`,
@@ -3055,8 +3061,11 @@ async function editClient(id){const c=id?await dbGet('clients',id):{type:'revend
 function autoTarif(){const t=val('c-type');const m={distributeur:'gros',revendeur:'gros',cooperative:'moyen',paysan:'detail'};
   document.getElementById('c-tarif').value=m[t];}
 async function saveClient(id){const c=id?await dbGet('clients',id):{id:uid(),solde:0};
+  let lat=parseFloat(val('c-lat')),lng=parseFloat(val('c-lng'));
+  if(isNaN(lat)||isNaN(lng)){const co=CITIES[(val('c-ville')||'').trim().toLowerCase()]||CITIES[(val('c-zone')||'').toLowerCase()]||CITIES['abidjan'];lat=co[0];lng=co[1];}
   Object.assign(c,{nom:val('c-nom'),type:val('c-type'),tarif:val('c-tarif'),zone:val('c-zone'),
-    ville:val('c-ville'),tel:val('c-tel'),compte:val('c-cpt'),ncc:val('c-ncc'),plafond:num('c-plaf')});
+    ville:val('c-ville'),tel:val('c-tel'),compte:val('c-cpt'),ncc:val('c-ncc'),plafond:num('c-plaf'),
+    statut:val('c-statut')||'client',lat,lng});
   await dbPut('clients',c);closeModal();toast('Client enregistré');go('clients');}
 
 /* ---- COMMANDES CLIENT ---- */
@@ -3172,19 +3181,15 @@ PAGES.livraisons=async()=>{
 };
 async function imprimerBL(id){const l=await dbGet('livraisons',id);const cl=await dbGet('clients',l.clientId);
   const prods=await dbAll('produits');const p=await dbGet('parametres','main');
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>${l.num}</title><style>body{font-family:Arial;padding:30px;font-size:13px}
-   h2{color:#1f7a3d}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}
-   .tot{text-align:right;font-weight:bold}</style></head><body>
-   <h2>${p.nom} — ${p.sigle}</h2><p>${p.siege} • ${p.tel} • RCCM ${p.rccm}</p><hr>
-   <h3>BON DE LIVRAISON N° ${l.num}</h3>
+  const corps=`<h2 style="color:#1f7a3d">${esc(p.nom)} — ${esc(p.sigle)}</h2>
+   <p>${esc(p.siege)} • ${esc(p.tel)} • RCCM ${esc(p.rccm)}</p><hr>
+   <h3>BON DE LIVRAISON N° ${esc(l.num)}</h3>
    <p><b>Client:</b> ${esc(cl.nom)} — ${esc(cl.ville)} (${esc(cl.zone)})<br>
    <b>Date:</b> ${fmtD(l.date)} • <b>Transport:</b> ${esc(l.transport)}</p>
    <table><tr><th>Produit</th><th>Qté</th><th>Unité</th></tr>
-   ${l.lignes.map(x=>{const pr=prods.find(y=>y.id===x.produitId);
-     return `<tr><td>${esc(pr?.nom)}</td><td>${FCFA0(x.qte)}</td><td>${pr?.unite}</td></tr>`;}).join('')}</table>
-   <p style="margin-top:40px">Signature client : _________________</p>
-   <script>print()</scr`+`ipt></body></html>`);
+   ${l.lignes.map(x=>{const pr=prods.find(y=>y.id===x.produitId);return `<tr><td>${esc(pr?.nom)}</td><td>${FCFA0(x.qte)}</td><td>${pr?.unite}</td></tr>`;}).join('')}</table>
+   <p style="margin-top:40px">Signature client : _________________</p>`;
+  apercu('BL '+l.num,corps,'table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}th{background:#f1f5f9}');
 }
 
 /* ---- FACTURATION SYSCOHADA ---- */
@@ -3321,22 +3326,13 @@ async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=a
   const taux={};f.lignes.forEach(l=>{taux[l.tva]=(taux[l.tva]||0)+l.totalHT;});
   const tvaRows=Object.entries(taux).map(([t,base])=>`<tr><td class="r">Base ${t}%</td><td class="r">${FCFA0(base)}</td><td class="r">${FCFA0(base*t/100)}</td></tr>`).join('');
   let qr='';
-  if(tFNE){const data='NCC:'+(p.ncc||'')+';FAC:'+f.num+';DATE:'+f.date+';TTC:'+f.totalTTC+';TVA:'+f.totalTVA+';CLIENT:'+(cl.ncc||cl.nom)+';REF:'+(f.refFNE||'EN_ATTENTE');
-    qr=qrSVG(data,118);}
+  if(tFNE){const data='NCC:'+(p.ncc||'')+';FAC:'+f.num+';DATE:'+f.date+';TTC:'+f.totalTTC+';TVA:'+f.totalTVA+';CLIENT:'+(cl.ncc||cl.nom)+';REF:'+(f.refFNE||'EN_ATTENTE');qr=qrSVG(data,118);}
   const titre=tFNE?'FACTURE NORMALISÉE ÉLECTRONIQUE':'FACTURE';
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>${f.num}</title><style>body{font-family:Arial;padding:28px;font-size:12px;color:#222}
-   h2{color:#1f7a3d;margin:0}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{border:1px solid #ccc;padding:6px}
-   th{background:#f1f5f9}.r{text-align:right}.head{display:flex;justify-content:space-between;align-items:flex-start}
-   .box{border:1px solid #ccc;padding:8px;border-radius:5px;margin-top:8px}
-   .fne-band{background:#1d3f6e;color:#fff;padding:6px 10px;border-radius:5px;font-weight:bold;text-align:center;margin:8px 0}
-   .mentions{font-size:10px;color:#555;margin-top:6px}.qr{text-align:center}</style></head><body>
-   <div class="head">
-    <div><h2>${esc(p.nom)} — ${esc(p.sigle)}</h2>
+  const corps=`<div class="head">
+    <div><h2 style="color:#1f7a3d;margin:0">${esc(p.nom)} — ${esc(p.sigle)}</h2>
      <div class="mentions">${esc(p.forme)} • ${esc(p.siege)}<br>Tél ${esc(p.tel)} • ${esc(p.mail)}<br>
      RCCM ${esc(p.rccm)}${p.ncc?' • NCC '+esc(p.ncc):''}${p.regime?'<br>Régime: '+esc(p.regime):''}${p.centre?' • '+esc(p.centre):''}</div></div>
-    ${tFNE?`<div class="qr">${qr}<div style="font-size:9px">Vérification DGI e-facture</div></div>`:''}
-   </div>
+    ${tFNE?`<div class="qr">${qr}<div style="font-size:9px">Vérification DGI e-facture</div></div>`:''}</div>
    ${tFNE?`<div class="fne-band">${titre}</div>`:`<h3>${titre}</h3>`}
    <div class="box"><b>N° ${esc(f.num)}</b> • Date ${fmtD(f.date)}${tFNE?(f.refFNE?' • Réf FNE: '+esc(f.refFNE):' • <span style="color:#b45309">FNE à transmettre à la DGI</span>'):''}</div>
    <p><b>Client (Doit):</b> ${esc(cl.nom)} — ${esc(cl.ville)} (${esc(cl.zone)})${cl.ncc?'<br><b>NCC client:</b> '+esc(cl.ncc):''}</p>
@@ -3346,9 +3342,8 @@ async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=a
    <tr><td colspan=4 class="r">TVA</td><td class="r">${FCFA0(f.totalTVA)}</td></tr>
    <tr><td colspan=4 class="r"><b>NET À PAYER TTC</b></td><td class="r"><b>${FCFA0(f.totalTTC)} F</b></td></tr></table>
    ${tFNE?`<table style="margin-top:6px;max-width:340px"><tr><th>Ventilation TVA</th><th class="r">Base</th><th class="r">Montant</th></tr>${tvaRows}</table>`:''}
-   <p class="mentions">Arrêtée à la somme de ${FCFA0(f.totalTTC)} francs CFA.
-   ${tFNE?'Facture normalisée conforme aux exigences de la DGI (Côte d’Ivoire), à transmettre via la plateforme e-facture.':'Document non normalisé — Conforme SYSCOHADA.'}</p>
-   <script>print()</scr`+`ipt></body></html>`);
+   <p class="mentions">Arrêtée à la somme de ${FCFA0(f.totalTTC)} francs CFA. ${tFNE?'Facture normalisée conforme DGI (Côte d’Ivoire), à transmettre via la plateforme e-facture.':'Document non normalisé — Conforme SYSCOHADA.'}</p>`;
+  apercu(f.num,corps,`h2{color:#1f7a3d}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{border:1px solid #ccc;padding:6px}th{background:#f1f5f9}.r{text-align:right}.head{display:flex;justify-content:space-between;align-items:flex-start}.box{border:1px solid #ccc;padding:8px;border-radius:5px;margin-top:8px}.fne-band{background:#1d3f6e;color:#fff;padding:6px 10px;border-radius:5px;font-weight:bold;text-align:center;margin:8px 0}.mentions{font-size:10px;color:#555;margin-top:6px}.qr{text-align:center}`);
 }
 
 /* ---- COMPTABILITÉ ---- */
@@ -3614,16 +3609,13 @@ async function genPaieGlobale(){const emps=(await dbAll('employes')).filter(e=>e
   toast('Paie du mois générée ('+emps.length+' bulletins)');go('rh');
 }
 async function imprimerBulletin(id){const p=await dbGet('paies',id);const param=await dbGet('parametres','main');
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Bulletin ${p.nom}</title><style>body{font-family:Arial;padding:30px;font-size:13px}
-   table{width:100%;border-collapse:collapse}td{padding:6px;border-bottom:1px solid #eee}.r{text-align:right}</style></head><body>
-   <h2 style="color:#1f7a3d">${param.nom}</h2><h3>BULLETIN DE PAIE — ${p.periode}</h3>
+  const corps=`<h2 style="color:#1f7a3d">${esc(param.nom)}</h2><h3>BULLETIN DE PAIE — ${esc(p.periode)}</h3>
    <p><b>${esc(p.nom)}</b></p>
    <table><tr><td>Salaire brut</td><td class="r">${FCFA(p.brut)}</td></tr>
    ${p.commission?`<tr><td>Commission</td><td class="r">+ ${FCFA(p.commission)}</td></tr>`:''}
    <tr><td>Cotisation salariale</td><td class="r">- ${FCFA(p.cotisSal)}</td></tr>
-   <tr><td><b>NET À PAYER</b></td><td class="r"><b>${FCFA(p.net)}</b></td></tr></table>
-   <script>print()</scr`+`ipt></body></html>`);
+   <tr><td><b>NET À PAYER</b></td><td class="r"><b>${FCFA(p.net)}</b></td></tr></table>`;
+  apercu('Bulletin '+p.nom,corps,'table{width:100%;border-collapse:collapse}td{padding:6px;border-bottom:1px solid #eee}.r{text-align:right}');
 }
 
 /* ---- DÉCLARATIONS FISCALES & SOCIALES ---- */
@@ -3697,7 +3689,9 @@ PAGES.parametres=async()=>{
    </div>
    <div class="card"><div class="card-h">💾 Données</div>
     <button class="btn-b" onclick="exportData()">⬇️ Sauvegarde JSON</button>
-    <button class="btn-r" onclick="resetData()" style="margin-left:8px">🗑️ Réinitialiser</button></div>`);
+    <button class="btn-p" onclick="genererDemo()" style="margin-left:8px">🎲 Générer données démo</button>
+    <button class="btn-r" onclick="resetData()" style="margin-left:8px">🗑️ Réinitialiser</button>
+    <p class="sm txt-m" style="margin-top:8px">La démo crée des ventes, règlements, missions et conseils cohérents pour alimenter les tableaux de bord. Aucune donnée n'est codée en dur.</p></div>`);
 };
 async function saveParam(){const p=await dbGet('parametres','main');
   Object.assign(p,{nom:val('pa-nom'),sigle:val('pa-sigle'),forme:val('pa-forme'),rccm:val('pa-rccm'),
@@ -3742,6 +3736,7 @@ PAGES.missions=async()=>{
 async function missionModal(id){
   const m=id?await dbGet('missions',id):{statut:'planifiee',debut:today(),fin:today(),zone:'Soubré',objet:'prospection',visites:0};
   const emps=(await dbAll('employes')).filter(e=>e.commission||e.role==='direction');
+  const cls=await dbAll('clients');
   modal(id?'Mission '+esc(m.num):'Nouvelle mission',`
    <div class="row">
     <div class="fld f"><label>Commercial</label><select id="m-com">
@@ -3755,6 +3750,7 @@ async function missionModal(id){
     <div class="fld f"><label>Zone</label><select id="m-zone">${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo','Centre-Ouest','Sud-Ouest','Nord'].map(z=>`<option ${m.zone===z?'selected':''}>${z}</option>`).join('')}</select></div>
    </div>
    <div class="fld"><label>Localités / clients ciblés</label><input id="m-cibles" value="${esc(m.cibles||'')}" placeholder="Vavoua, Guiglo, Coop. Soubré..."></div>
+   <div class="fld"><label>Clients à visiter (itinéraire)</label><div style="max-height:120px;overflow:auto;border:1px solid var(--bord);border-radius:6px;padding:8px">${cls.map(cl=>`<label class="sm" style="display:block"><input type="checkbox" class="m-cli" value="${cl.id}" ${(m.clientsVisite||[]).includes(cl.id)?'checked':''} style="width:auto"> ${esc(cl.nom)} — ${esc(cl.ville||cl.zone)}</label>`).join('')}</div></div>
    <div class="row">
     <div class="fld f"><label>Visites réalisées</label><input id="m-visites" type="number" value="${m.visites||0}"></div>
     <div class="fld f"><label>Frais carburant</label><input id="m-carb" type="number" value="${m.carburant||0}"></div>
@@ -3765,12 +3761,14 @@ async function missionModal(id){
      ${[['planifiee','Planifiée'],['encours','En cours'],['cloturee','Clôturée']].map(([v,l])=>`<option value="${v}" ${m.statut===v?'selected':''}>${l}</option>`).join('')}</select></div>`,
    `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer mission ?','async()=>{await dbDel(\\'missions\\',\\'${id}\\');go(\\'missions\\')}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-b" onclick="voirItineraire('${id||''}')">🗺️ Itinéraire</button>
     ${id?`<button class="btn-b" onclick="comptaFrais('${id}')">Comptabiliser frais</button>`:''}
     <button class="btn-p" onclick="saveMission('${id||''}')">Enregistrer</button>`,true);
 }
 async function saveMission(id){const m=id?await dbGet('missions',id):{id:uid()};
+  const cv=[...document.querySelectorAll('.m-cli:checked')].map(x=>x.value);
   Object.assign(m,{commercialId:val('m-com'),objet:val('m-objet'),debut:val('m-debut'),fin:val('m-fin'),
-    zone:val('m-zone'),cibles:val('m-cibles'),visites:num('m-visites'),carburant:num('m-carb'),
+    zone:val('m-zone'),cibles:val('m-cibles'),clientsVisite:cv,visites:num('m-visites'),carburant:num('m-carb'),
     perdiem:num('m-pd'),compteRendu:val('m-cr'),statut:val('m-statut')});
   if(!m.num)m.num='MIS-'+await nextSeq('mission');
   let auto=false;
@@ -4061,6 +4059,169 @@ async function saveDepot(id){const d=id?await dbGet('depots',id):{id:uid()};
 async function delDepot(id){const v=await valoStock(id);
   if(v>0){toast("Dépôt non vide — videz le stock d'abord");return;}
   await dbDel('depots',id);await fillDepots();closeModal();toast('Dépôt supprimé');go('stock');
+}
+
+
+/* ====== GÉOLOCALISATION CÔTE D'IVOIRE ====== */
+let ITIN=null;
+const CITIES={
+ 'abidjan':[5.345,-4.024],'yopougon':[5.345,-4.07],'bonoua':[5.27,-3.595],
+ 'soubré':[5.784,-6.593],'san-pédro':[4.748,-6.636],'daloa':[6.877,-6.45],
+ 'korhogo':[9.458,-5.629],'man':[7.412,-7.554],'gagnoa':[6.131,-5.95],
+ 'abengourou':[6.729,-3.496],'katiola':[8.13,-5.10],'vavoua':[7.38,-6.48],
+ 'guiglo':[6.54,-7.49],'duékoué':[6.74,-7.34],'bouaké':[7.69,-5.03],
+ 'yamoussoukro':[6.827,-5.289],'sud-ouest':[5.0,-6.6],'centre-ouest':[6.8,-6.4],
+ 'nord':[9.4,-5.6],'bondoukou':[8.04,-2.80]};
+const CI_BOX={lngMin:-8.7,lngMax:-2.4,latMin:4.2,latMax:10.8};
+const CI_OUTLINE=[[10.3,-7.9],[10.5,-6.2],[9.9,-5.35],[10.35,-4.0],[9.4,-2.78],[8.0,-2.5],
+ [6.2,-2.72],[5.1,-3.0],[5.0,-3.9],[4.4,-5.5],[4.35,-6.6],[4.6,-7.55],[6.5,-8.45],[7.8,-8.2],[9.4,-8.25]];
+function ciProject(lat,lng,W,H){const b=CI_BOX;
+  return [(lng-b.lngMin)/(b.lngMax-b.lngMin)*W,(1-(lat-b.latMin)/(b.latMax-b.latMin))*H];}
+function clientCoords(cl){if(cl.lat&&cl.lng)return{lat:cl.lat,lng:cl.lng};
+  const c=CITIES[(cl.ville||'').trim().toLowerCase()]||CITIES[(cl.zone||'').toLowerCase()]||CITIES['abidjan'];
+  return{lat:c[0],lng:c[1]};}
+function haversine(a,b){const R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180;
+  const s=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));}
+function ciMapSVG(markers,route,W,H){W=W||560;H=H||620;
+  const out=CI_OUTLINE.map(([la,ln])=>ciProject(la,ln,W,H));
+  const path='M'+out.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L')+' Z';
+  let dots='';
+  (markers||[]).forEach(m=>{const[x,y]=ciProject(m.lat,m.lng,W,H);
+    const col=m.kind==='prospect'?'#e67e22':(m.kind==='depot'?'#1d3f6e':'#1f7a3d');
+    dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${m.kind==='depot'?6:5}" fill="${col}" stroke="#fff" stroke-width="1.5"><title>${esc(m.label)}</title></circle>`;
+    if(m.show!==false)dots+=`<text x="${(x+7).toFixed(1)}" y="${(y+3).toFixed(1)}" font-size="9" fill="#334155">${esc(m.label)}</text>`;});
+  let line='';
+  if(route&&route.length>1){const pts=route.map(r=>ciProject(r.lat,r.lng,W,H));
+    line='<polyline points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'" fill="none" stroke="#2c66b0" stroke-width="2" stroke-dasharray="5,3"/>';
+    pts.forEach((p,i)=>{line+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="9" fill="#1d3f6e" stroke="#fff" stroke-width="1.5"/><text x="${p[0].toFixed(1)}" y="${(p[1]+3.5).toFixed(1)}" font-size="10" fill="#fff" text-anchor="middle">${i}</text>`;});}
+  return `<svg viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto;background:#eef6ff;border-radius:10px">
+   <path d="${path}" fill="#dcf0e0" stroke="#9bbf9f" stroke-width="1.5"/>${line}${dots}</svg>`;
+}
+
+/* ---- CARTE ---- */
+PAGES.carte=async()=>{
+  const cls=await dbAll('clients'),deps=await dbAll('depots');
+  const markers=[];
+  deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];markers.push({lat:c[0],lng:c[1],label:'🏬 '+d.nom,kind:'depot'});});
+  cls.forEach(c=>{const co=clientCoords(c);markers.push({lat:co.lat,lng:co.lng,label:c.nom,kind:c.statut==='prospect'?'prospect':'client',show:false});});
+  const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
+  H(pageH('Carte & Itinéraires','<button class="btn-p" onclick="planifierItineraire()">🗺️ Planifier itinéraire</button>')+`
+   <div class="row">
+    <div class="card" style="flex:2">${ciMapSVG(markers,null)}
+      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
+        <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
+        <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt</div></div>
+    <div class="card f"><div class="card-h">Clients &amp; prospects</div>
+     <table><tr><th>Nom</th><th>Localité</th><th>Statut</th></tr>
+     ${cls.map(c=>`<tr><td>${esc(c.nom)}</td><td class="sm">${esc(c.ville||c.zone)}</td>
+       <td><span class="tag ${c.statut==='prospect'?'t-orange':'t-vert'}">${c.statut||'client'}</span></td></tr>`).join('')}</table></div>
+   </div>`);
+};
+async function planifierItineraire(){const cls=await dbAll('clients');
+  modal('Planifier un itinéraire',`
+   <div class="fld"><label>Zone de départ</label><select id="m-zone">
+     ${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo'].map(z=>`<option>${z}</option>`).join('')}</select></div>
+   <div class="fld"><label>Clients à visiter</label>
+     <div style="max-height:220px;overflow:auto;border:1px solid var(--bord);border-radius:6px;padding:8px">
+     ${cls.map(cl=>`<label class="sm" style="display:block;padding:2px 0"><input type="checkbox" class="m-cli" value="${cl.id}" style="width:auto"> ${esc(cl.nom)} — ${esc(cl.ville||cl.zone)}</label>`).join('')}</div></div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-b" onclick="voirItineraire('')">Calculer l'itinéraire</button>`,true);
+}
+async function voirItineraire(id){
+  let ids=[...document.querySelectorAll('.m-cli:checked')].map(x=>x.value);
+  if(!ids.length&&id){const m=await dbGet('missions',id);ids=m.clientsVisite||[];}
+  if(!ids.length){toast('Sélectionner des clients à visiter');return;}
+  const cls=await dbAll('clients'),deps=await dbAll('depots');
+  const zone=val('m-zone')||deps.find(d=>d.id===STATE.depot)?.zone||'Abidjan';
+  const sc=CITIES[zone.toLowerCase()]||CITIES['abidjan'];
+  const start={lat:sc[0],lng:sc[1],label:'Départ ('+zone+')'};
+  const pts=ids.map(i=>{const c=cls.find(x=>x.id===i);const co=clientCoords(c);return{lat:co.lat,lng:co.lng,label:c.nom};}).filter(Boolean);
+  let route=[start],rem=pts.slice(),cur=start;
+  while(rem.length){let bi=0,bd=1e9;rem.forEach((p,i)=>{const d=haversine(cur,p);if(d<bd){bd=d;bi=i;}});cur=rem[bi];route.push(cur);rem.splice(bi,1);}
+  let dist=0;for(let i=1;i<route.length;i++)dist+=haversine(route[i-1],route[i]);
+  ITIN={route,dist,zone};
+  const markers=route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
+  const svg=ciMapSVG(markers,route);
+  const listHTML=route.map((r,i)=>`<tr><td class="center bold">${i}</td><td>${esc(r.label)}</td>
+    <td class="right sm txt-m">${i>0?Math.round(haversine(route[i-1],route[i]))+' km':'départ'}</td></tr>`).join('');
+  modal('Itinéraire — '+(route.length-1)+' visites',
+   `<div class="row"><div class="f" style="min-width:240px">${svg}</div>
+    <div class="f"><table><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
+     <div class="bold" style="margin-top:10px">Distance totale ≈ ${Math.round(dist)} km</div>
+     <div class="sm txt-m">Ordre optimisé (plus proche voisin) depuis ${esc(zone)}.</div></div></div>`,
+   `<button class="btn-g" onclick="closeModal()">Fermer</button>
+    <button class="btn-b" onclick="imprimerItineraire()">🖨️ Aperçu / Imprimer</button>`,true);
+}
+async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('parametres','main');
+  const markers=ITIN.route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
+  const svg=ciMapSVG(markers,ITIN.route);
+  const rows=ITIN.route.map((r,i)=>`<tr><td>${i}</td><td>${esc(r.label)}</td><td>${i>0?Math.round(haversine(ITIN.route[i-1],ITIN.route[i]))+' km':'départ'}</td></tr>`).join('');
+  apercu("Itinéraire mission",`<h2 style="color:#1f7a3d">${esc(p.nom)} — Feuille d'itinéraire</h2>
+   <p>Zone : <b>${esc(ITIN.zone)}</b> • Distance totale ≈ <b>${Math.round(ITIN.dist)} km</b> • ${ITIN.route.length-1} visites</p>
+   <div style="max-width:360px">${svg}</div>
+   <table style="margin-top:12px;width:100%"><tr><th>#</th><th>Arrêt</th><th>Tronçon</th></tr>${rows}</table>`,
+   'table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}th{background:#f1f5f9}');
+}
+
+/* ====== APERÇU AVANT IMPRESSION ====== */
+function apercu(titre,corps,styles){
+  const w=window.open('','_blank','width=920,height=760');
+  w.document.write(`<html><head><title>${esc(titre)}</title><meta charset="utf-8"><style>
+   body{font-family:Arial,sans-serif;font-size:12px;color:#222}${styles||''}
+   @media screen{body{background:#525659;margin:0}
+    #sheet{background:#fff;max-width:800px;margin:72px auto 30px;padding:32px;box-shadow:0 0 20px rgba(0,0,0,.4)}
+    #bar{position:fixed;top:0;left:0;right:0;height:52px;background:#1d3f6e;display:flex;align-items:center;gap:10px;padding:0 18px}
+    #bar b{color:#fff;flex:1;font-size:14px}
+    #bar button{font:inherit;padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:14px}
+    .pr{background:#2fa85a;color:#fff}.cl{background:#e2e8f0;color:#222}}
+   @media print{#bar{display:none}#sheet{box-shadow:none;margin:0;max-width:none;padding:0}}
+  </style></head><body>
+   <div id="bar"><b>Aperçu avant impression — ${esc(titre)}</b>
+     <button class="pr" onclick="window.print()">🖨️ Imprimer</button>
+     <button class="cl" onclick="window.close()">Fermer</button></div>
+   <div id="sheet">${corps}</div></body></html>`);
+  w.document.close();
+}
+
+/* ====== GÉNÉRATEUR DE DONNÉES DÉMO ====== */
+async function genererDemo(){
+  const cls=await dbAll('clients'),prods=await dbAll('produits');
+  const an=new Date().getFullYear();const pick=a=>a[Math.floor(Math.random()*a.length)];
+  let nb=0;
+  for(let mois=1;mois<=6;mois++){const n=2+Math.floor(Math.random()*3);
+    for(let k=0;k<n;k++){const cl=pick(cls);
+      const date=an+'-'+String(mois).padStart(2,'0')+'-'+String(5+k*4).padStart(2,'0');
+      const lignes=[];const nl=1+Math.floor(Math.random()*2);
+      for(let j=0;j<nl;j++){const p=pick(prods);const dispo=await stockProduit(p.id,STATE.depot);
+        let qte=10+Math.floor(Math.random()*150);qte=Math.min(qte,Math.max(0,dispo));if(qte<=0)continue;
+        const pu=tarifPrix(p,cl.tarif);lignes.push({produitId:p.id,qte,pu,tva:p.tva,totalHT:qte*pu});
+        await mouvStock(p.id,STATE.depot,qte,'sortie','Vente démo');}
+      if(!lignes.length)continue;
+      const ht=lignes.reduce((a,l)=>a+l.totalHT,0),tva=lignes.reduce((a,l)=>a+l.totalHT*l.tva/100,0);
+      const ttc=ht+tva;const fac={id:uid(),num:'FA-'+await nextSeq('facture'),clientId:cl.id,cmdId:null,
+        date,lignes,type:'simple',totalHT:ht,totalTVA:Math.round(tva),totalTTC:Math.round(ttc),
+        regle:0,statut:'emise',demo:true};
+      const pct=pick([1,1,0.5,0]);fac.regle=Math.round(ttc*pct);if(pct>=1)fac.statut='payee';
+      await dbPut('factures',fac);
+      await ecrire('VTE',date,'Vente démo '+fac.num,[{compte:cl.compte||'4111',debit:Math.round(ttc),credit:0},
+        {compte:'701',debit:0,credit:ht},{compte:'4431',debit:0,credit:Math.round(tva)}],fac.num);
+      if(fac.regle>0)await ecrire('TRE',date,'Règlt démo '+fac.num,[{compte:pick(['571','531','521']),debit:fac.regle,credit:0},
+        {compte:cl.compte||'4111',debit:0,credit:fac.regle}],fac.num);
+      nb++;}}
+  const coms=(await dbAll('employes')).filter(e=>e.commission);
+  for(let i=0;i<3;i++){const e=pick(coms);
+    const m={id:uid(),num:'MIS-'+await nextSeq('mission'),commercialId:e.id,
+      objet:pick(['prospection','assistance','recouvrement']),debut:an+'-0'+(i+2)+'-10',fin:an+'-0'+(i+2)+'-12',
+      zone:e.zone,cibles:'Tournée '+e.zone,visites:3+Math.floor(Math.random()*5),
+      carburant:15000+Math.floor(Math.random()*20000),perdiem:20000+Math.floor(Math.random()*15000),
+      statut:'cloturee',demo:true};
+    await postFraisMission(m);await dbPut('missions',m);}
+  for(let i=0;i<3;i++){const cl=pick(cls),p=pick(prods);
+    await dbPut('conseils',{id:uid(),clientId:cl.id,date:an+'-0'+(i+3)+'-15',culture:pick(['Cacao','Riz','Coton']),
+      surface:5+Math.floor(Math.random()*20),typeProb:pick(['ravageur','maladie','adventice']),
+      diagnostic:'Diagnostic terrain (démo)',produitId:p.id,dose:'1,5 L/ha',statut:pick(['ouvert','resolu']),demo:true});}
+  toast(nb+' ventes + 3 missions + 3 conseils générés');go('dashboard');
 }
 
 /* ====== INIT ====== */
