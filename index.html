@@ -2620,16 +2620,18 @@ function setDepot(id){STATE.depot=id;go(STATE.page);}
 
 /* ====== NAVIGATION ====== */
 const NAV=[
- ['Pilotage',[['dashboard','📊','Tableau de bord'],['analytique','📈','Analytique']]],
- ['Achats & Stock',[['appro','📥','Appro / Achats'],['stock','📦','Stock'],
-   ['produits','🧪','Produits'],['fournisseurs','🏭','Fournisseurs']]],
- ['Ventes',[['clients','👥','Clients'],['commandes','🛒','Commandes'],
-   ['livraisons','🚚','Distribution'],['factures','🧾','Facturation']]],
- ['Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
-   ['rapports','📝','Rapports hebdo'],['carte','📍','Carte & Itinéraires']]],
- ['Comptabilité',[['compta','📒','Comptabilité'],['tresorerie','💰','Trésorerie'],
-   ['fiscal','🏛️','Déclarations'],['tiers','📇','Comptes tiers']]],
- ['Ressources',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
+ ['① Pilotage',[['dashboard','📊','Tableau de bord'],['analytique','📈','Analytique']]],
+ ['② Approvisionnement',[['fournisseurs','🏭','Fournisseurs'],['produits','🧪','Produits'],
+   ['appro','📥','Appro / Achats']]],
+ ['③ Stock & Dépôts',[['stock','📦','Stock & Dépôts']]],
+ ['④ Prospection & Clients',[['carte','📍','Carte & Itinéraires'],['clients','👥','Clients']]],
+ ['⑤ Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
+   ['rapports','📝','Rapports hebdo']]],
+ ['⑥ Ventes & Distribution',[['commandes','🛒','Commandes'],['livraisons','🚚','Distribution']]],
+ ['⑦ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
+ ['⑧ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['compta','📒','Comptabilité'],
+   ['fiscal','🏛️','Déclarations']]],
+ ['⑨ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
 function buildNav(){
   let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
