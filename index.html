@@ -83,6 +83,21 @@ tr:hover td{background:#f8fafc}
 .txt-r{color:var(--rouge)}.txt-v{color:var(--ok)}.txt-m{color:var(--muted)}.sm{font-size:12px}
 .empty{text-align:center;padding:40px;color:#94a3b8}
 .toast{position:fixed;bottom:20px;right:20px;background:#1e293b;color:#fff;padding:12px 18px;border-radius:8px;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.3);animation:sl .3s}
+/* NOTIFICATIONS */
+.notif-bell{position:relative;background:none;border:none;font-size:19px;padding:6px 8px;border-radius:8px;margin-right:6px}
+.notif-bell:hover{background:#f1f5f9}
+.notif-badge{position:absolute;top:0;right:0;background:var(--rouge);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1}
+.notif-panel{position:fixed;top:60px;right:18px;width:380px;max-height:72vh;background:#fff;border:1px solid var(--bord);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.18);z-index:900;display:none;flex-direction:column;overflow:hidden}
+.notif-panel.show{display:flex}
+.notif-panel-h{padding:12px 14px;border-bottom:1px solid var(--bord);display:flex;align-items:center;font-weight:700;font-size:13px}
+.notif-panel-h .sp{flex:1}
+.notif-list{overflow-y:auto;flex:1}
+.notif-it{padding:11px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px}
+.notif-it.unread{background:#f8fafc}
+.notif-it .ti{font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.notif-it .msg{color:var(--muted);margin-bottom:6px}
+.notif-it .acts button{margin-right:6px;padding:4px 9px;font-size:11px}
+.notif-empty{padding:30px 14px;text-align:center;color:var(--muted);font-size:12.5px}
 @keyframes sl{from{transform:translateY(20px);opacity:0}}
 .lines-tbl input,.lines-tbl select{padding:5px 7px}
 .tabs{display:flex;gap:4px;border-bottom:2px solid var(--bord);margin-bottom:16px;flex-wrap:wrap}
@@ -216,6 +231,12 @@ tr:hover td{background:#f8fafc}
     </span>
     <div class="sp"></div>
     <select id="depotGlobal" class="depot-sel" onchange="setDepot(this.value)"></select>
+    <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="Notifications">🔔<span class="notif-badge" id="notifBadge" style="display:none">0</span></button>
+    <div class="notif-panel" id="notifPanel">
+      <div class="notif-panel-h">Notifications<div class="sp"></div>
+        <button class="btn-g btn-sm" onclick="markAllRead()">Tout lire</button></div>
+      <div class="notif-list" id="notifList"></div>
+    </div>
     <div class="user-chip">
       <div class="avatar" id="userAv">A</div>
       <div><div id="userNom" class="bold">Admin</div><div class="sm txt-m" id="userRole">Administrateur</div></div>
@@ -2571,9 +2592,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com'];
+'actions_mkg','objectifs_com','notifications'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',5);
+  const r=indexedDB.open('PSF_ERP',6);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -2716,6 +2737,123 @@ function confirmDel(msg,cb){modal('Confirmation',`<p>${esc(msg)}</p>`,
   `<button class="btn-g" onclick="closeModal()">Annuler</button>
    <button class="btn-r" onclick="(${cb})();closeModal()">Supprimer</button>`);}
 
+/* ====== NOTIFICATIONS / ALERTES INTERNES ====== */
+const NOTIF_DEFS={
+ stock_seuil:   {ic:'📦',lab:'Stock sous seuil',niv:'orange'},
+ stock_rupture: {ic:'🚨',lab:'Rupture de stock',niv:'rouge'},
+ ech_echue:     {ic:'⏰',lab:'Échéance échue',niv:'rouge'},
+ ech_proche:    {ic:'📅',lab:'Échéance proche',niv:'orange'},
+ appro_attente: {ic:'📥',lab:'Réception fournisseur en attente',niv:'bleu'},
+ livr_attente:  {ic:'🚚',lab:'Livraison client en attente',niv:'bleu'},
+};
+function defautNotifParam(){return{actif:true,telInternes:'',mailInterne:'',
+  joursEcheance:3,joursAppro:7,joursLivraison:5,
+  cats:{stock_seuil:true,stock_rupture:true,ech_echue:true,ech_proche:true,appro_attente:true,livr_attente:true}};}
+function waNum(tel){let d=(tel||'').replace(/[^0-9]/g,'');if(!d)return'';
+  if(d.length===10&&d.startsWith('0'))d='225'+d.slice(1);
+  else if(d.length<=9)d='225'+d;return d;}
+function waLink(tel,msg){const n=waNum(tel);if(!n){toast('Aucun numéro de téléphone renseigné');return;}
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(msg),'_blank');}
+function mailLink(mail,subject,body){if(!mail){toast('Aucune adresse email renseignée');return;}
+  window.open('mailto:'+mail+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body),'_blank');}
+
+async function pushNotif(type,cle,titre,msg,lien,extra){
+  const all=await dbAll('notifications');let n=all.find(x=>x.cle===cle);
+  if(n){if(n.resolu){n.resolu=false;n.lu=false;n.date=new Date().toISOString();}
+    n.titre=titre;n.msg=msg;n.lien=lien;Object.assign(n,extra||{});await dbPut('notifications',n);}
+  else{await dbPut('notifications',Object.assign({id:uid(),cle,type,titre,msg,lien:lien||'',
+    date:new Date().toISOString(),lu:false,resolu:false},extra||{}));}
+}
+async function resoudreNotifsAbsentes(type,clesActives){
+  const all=await dbAll('notifications');
+  for(const n of all){if(n.type===type&&!n.resolu&&!clesActives.has(n.cle)){n.resolu=true;await dbPut('notifications',n);}}
+}
+
+async function scanAlertes(){
+  const p=(await dbGet('parametres','main'))||{};const np=Object.assign(defautNotifParam(),p.notif||{});
+  if(!np.actif)return;
+  const cats=np.cats||{};
+  // -- Stock : seuil & rupture --
+  if(cats.stock_seuil!==false||cats.stock_rupture!==false){
+    const prods=await dbAll('produits');const actives=new Set(),activesR=new Set();
+    for(const pr of prods){const q=await stockProduit(pr.id,null);
+      if(q<=0&&cats.stock_rupture!==false){const cle='stock_rupture:'+pr.id;activesR.add(cle);
+        await pushNotif('stock_rupture',cle,'Rupture — '+pr.nom,'Stock à 0 '+(pr.unite||''),'stock',{refId:pr.id,refNom:pr.nom});}
+      else if(q<=(pr.seuil||0)&&cats.stock_seuil!==false){const cle='stock_seuil:'+pr.id;actives.add(cle);
+        await pushNotif('stock_seuil',cle,'Stock bas — '+pr.nom,'Stock '+FCFA0(q)+' '+(pr.unite||'')+' (seuil '+FCFA0(pr.seuil||0)+')','stock',{refId:pr.id,refNom:pr.nom});}}
+    await resoudreNotifsAbsentes('stock_seuil',actives);await resoudreNotifsAbsentes('stock_rupture',activesR);
+  }
+  // -- Échéances clients --
+  if(cats.ech_echue!==false||cats.ech_proche!==false){
+    const facs=(await dbAll('factures')).filter(f=>f.echeancier&&f.echeancier.length&&f.statut!=='annulee');
+    const cls=await dbAll('clients');const actEchue=new Set(),actProche=new Set();
+    const lim=new Date();lim.setDate(lim.getDate()+(np.joursEcheance||3));
+    for(const f of facs){const cl=cls.find(c=>c.id===f.clientId);
+      for(const e of computeEcheances(f)){
+        if(e.statut==='echu'&&cats.ech_echue!==false){const cle='ech_echue:'+e.id;actEchue.add(cle);
+          await pushNotif('ech_echue',cle,'Échéance échue — '+(cl?.nom||'?'),'Facture '+f.num+' • '+FCFA(e.montant)+' • échue le '+fmtD(e.date),'tiers',
+            {refId:f.id,clientTel:cl?.tel,clientNom:cl?.nom,montant:e.montant,facNum:f.num});}
+        else if(e.statut==='avenir'&&new Date(e.date)<=lim&&cats.ech_proche!==false){const cle='ech_proche:'+e.id;actProche.add(cle);
+          await pushNotif('ech_proche',cle,'Échéance proche — '+(cl?.nom||'?'),'Facture '+f.num+' • '+FCFA(e.montant)+' • le '+fmtD(e.date),'tiers',
+            {refId:f.id,clientTel:cl?.tel,clientNom:cl?.nom,montant:e.montant,facNum:f.num});}
+      }}
+    await resoudreNotifsAbsentes('ech_echue',actEchue);await resoudreNotifsAbsentes('ech_proche',actProche);
+  }
+  // -- Réceptions fournisseur en attente --
+  if(cats.appro_attente!==false){
+    const cmds=(await dbAll('cmdAchat')).filter(c=>c.statut==='envoyee');const fours=await dbAll('fournisseurs');
+    const act=new Set();const seuil=np.joursAppro||7;
+    for(const c of cmds){const j=Math.floor((Date.now()-new Date(c.date).getTime())/86400000);
+      if(j>=seuil){const fo=fours.find(x=>x.id===c.fournId);const cle='appro_attente:'+c.id;act.add(cle);
+        await pushNotif('appro_attente',cle,'Réception en attente — '+c.num,(fo?.nom||'Fournisseur')+' • commande du '+fmtD(c.date)+' ('+j+' j)','appro',
+          {refId:c.id,fournTel:fo?.tel,fournNom:fo?.nom});}}
+    await resoudreNotifsAbsentes('appro_attente',act);
+  }
+  // -- Livraisons client en attente --
+  if(cats.livr_attente!==false){
+    const cmds=(await dbAll('cmdClient')).filter(c=>c.statut==='confirmee');const cls=await dbAll('clients');
+    const act=new Set();const seuil=np.joursLivraison||5;
+    for(const c of cmds){const j=Math.floor((Date.now()-new Date(c.date).getTime())/86400000);
+      if(j>=seuil){const cl=cls.find(x=>x.id===c.clientId);const cle='livr_attente:'+c.id;act.add(cle);
+        await pushNotif('livr_attente',cle,'Livraison en attente — '+c.num,(cl?.nom||'Client')+' • commande du '+fmtD(c.date)+' ('+j+' j)','commandes',
+          {refId:c.id,clientTel:cl?.tel,clientNom:cl?.nom});}}
+    await resoudreNotifsAbsentes('livr_attente',act);
+  }
+  await refreshNotifUI();
+}
+
+async function refreshNotifUI(){
+  const all=(await dbAll('notifications')).filter(n=>!n.resolu).sort((a,b)=>b.date<a.date?1:-1);
+  const nonLues=all.filter(n=>!n.lu).length;
+  const badge=document.getElementById('notifBadge');
+  if(badge){badge.style.display=nonLues?'flex':'none';badge.textContent=nonLues>99?'99+':nonLues;}
+  const list=document.getElementById('notifList');if(!list)return;
+  if(!all.length){list.innerHTML='<div class="notif-empty">Aucune alerte active ✓</div>';return;}
+  const p=(await dbGet('parametres','main'))||{};const np=Object.assign(defautNotifParam(),p.notif||{});
+  list.innerHTML=all.map(n=>{
+    const d=NOTIF_DEFS[n.type]||{ic:'🔔',lab:n.type,niv:'gris'};
+    const tel=n.clientTel||n.fournTel||np.telInternes.split(',')[0]||'';
+    const mail=np.mailInterne||'';
+    const txt=(n.titre+' — '+n.msg);
+    return `<div class="notif-it ${n.lu?'':'unread'}" data-id="${n.id}">
+      <div class="ti"><span class="tag t-${d.niv}">${d.ic} ${d.lab}</span></div>
+      <div class="msg" onclick="lireNotif('${n.id}','${n.lien||''}')" style="cursor:pointer">${esc(n.titre)}<br>${esc(n.msg)}</div>
+      <div class="acts">
+        ${tel?`<button class="btn-g btn-sm" onclick="waLink('${esc(tel)}',${JSON.stringify(txt)});lireNotif('${n.id}','')">📲 WhatsApp</button>`:''}
+        <button class="btn-g btn-sm" onclick="mailLink('${esc(mail)}',${JSON.stringify(n.titre)},${JSON.stringify(n.msg)});lireNotif('${n.id}','')">✉️ Email</button>
+        <button class="btn-g btn-sm" onclick="closeOneNotif('${n.id}')">✓ Traité</button>
+      </div></div>`;}).join('');
+}
+async function lireNotif(id,lien){const n=await dbGet('notifications',id);if(n&&!n.lu){n.lu=true;await dbPut('notifications',n);}
+  toggleNotifPanel(false);if(lien)go(lien);await refreshNotifUI();}
+async function closeOneNotif(id){const n=await dbGet('notifications',id);if(n){n.resolu=true;n.lu=true;await dbPut('notifications',n);}await refreshNotifUI();}
+async function markAllRead(){const all=await dbAll('notifications');for(const n of all){if(!n.lu){n.lu=true;await dbPut('notifications',n);}}await refreshNotifUI();}
+function toggleNotifPanel(force){const el=document.getElementById('notifPanel');
+  if(force===false){el.classList.remove('show');return;}
+  el.classList.toggle('show');}
+document.addEventListener('click',e=>{const panel=document.getElementById('notifPanel'),bell=document.getElementById('notifBell');
+  if(panel&&panel.classList.contains('show')&&!panel.contains(e.target)&&e.target!==bell&&!bell?.contains(e.target))panel.classList.remove('show');});
+
 /* ====== AUTH ====== */
 async function login(){
   const u=val('lg-user').trim(),p=val('lg-pass');
@@ -2731,8 +2869,12 @@ async function login(){
     compta:'Comptabilité',commercial:'Commercial',magasin:'Magasin'})[usr.role]||usr.role;
   document.getElementById('userAv').textContent=usr.nom[0];
   await fillDepots();buildNav();go('dashboard');
+  await scanAlertes();
+  if(window._notifInterval)clearInterval(window._notifInterval);
+  window._notifInterval=setInterval(scanAlertes,5*60*1000);
 }
-function logout(){STATE.user=null;document.getElementById('app').style.display='none';
+function logout(){STATE.user=null;if(window._notifInterval)clearInterval(window._notifInterval);
+  document.getElementById('app').style.display='none';
   document.getElementById('login').style.display='flex';}
 async function fillDepots(){const deps=await dbAll('depots');
   document.getElementById('depotGlobal').innerHTML=deps.map(d=>
@@ -3808,7 +3950,22 @@ PAGES.fiscal=async()=>{
 /* ---- PARAMÈTRES ---- */
 PAGES.parametres=async()=>{
   const p=await dbGet('parametres','main');const users=await dbAll('utilisateurs');const deps=await dbAll('depots');
+  const np=Object.assign(defautNotifParam(),p.notif||{});const cats=np.cats||{};
   H(pageH('Paramètres')+`
+   <div class="card"><div class="card-h">🔔 Notifications</div>
+    <div class="row"><div class="fld f"><label>Téléphone(s) WhatsApp interne(s)</label><input id="no-tel" value="${esc(np.telInternes)}" placeholder="0707xxxxxx, 0101xxxxxx"></div>
+     <div class="fld f"><label>Email interne</label><input id="no-mail" value="${esc(np.mailInterne)}" placeholder="alertes@entreprise.ci"></div></div>
+    <div class="row">
+     <div class="fld f"><label>Alerte échéance à J-</label><input id="no-jech" type="number" value="${np.joursEcheance}"></div>
+     <div class="fld f"><label>Retard réception fournisseur (j)</label><input id="no-jappro" type="number" value="${np.joursAppro}"></div>
+     <div class="fld f"><label>Retard livraison client (j)</label><input id="no-jlivr" type="number" value="${np.joursLivraison}"></div></div>
+    <label class="sm txt-m" style="display:block;margin:10px 0 4px">Catégories actives</label>
+    <div class="row">
+     ${Object.entries(NOTIF_DEFS).map(([k,d])=>`<label class="sm" style="display:flex;align-items:center;gap:5px;margin-right:14px">
+       <input type="checkbox" id="no-cat-${k}" ${cats[k]!==false?'checked':''} style="width:auto">${d.ic} ${d.lab}</label>`).join('')}</div>
+    <label class="sm" style="display:flex;align-items:center;gap:5px;margin-top:10px">
+     <input type="checkbox" id="no-actif" ${np.actif!==false?'checked':''} style="width:auto">Activer le système de notifications</label>
+    <button class="btn-p" style="margin-top:10px" onclick="saveNotifParam()">Enregistrer & rescanner</button></div>
    <div class="card"><div class="card-h">🏢 Entreprise</div>
     <div class="row"><div class="fld f"><label>Raison sociale</label><input id="pa-nom" value="${esc(p.nom)}"></div>
      <div class="fld f"><label>Sigle</label><input id="pa-sigle" value="${esc(p.sigle)}"></div>
@@ -3844,6 +4001,11 @@ PAGES.parametres=async()=>{
     <button class="btn-r" onclick="resetData()" style="margin-left:8px">🗑️ Réinitialiser</button>
     <p class="sm txt-m" style="margin-top:8px">La démo crée des ventes, règlements, missions et conseils cohérents pour alimenter les tableaux de bord. Aucune donnée n'est codée en dur.</p></div>`);
 };
+async function saveNotifParam(){const p=await dbGet('parametres','main');
+  const cats={};Object.keys(NOTIF_DEFS).forEach(k=>cats[k]=document.getElementById('no-cat-'+k).checked);
+  p.notif={actif:document.getElementById('no-actif').checked,telInternes:val('no-tel'),mailInterne:val('no-mail'),
+    joursEcheance:num('no-jech')||3,joursAppro:num('no-jappro')||7,joursLivraison:num('no-jlivr')||5,cats};
+  await dbPut('parametres',p);toast('Notifications mises à jour');await scanAlertes();}
 async function saveParam(){const p=await dbGet('parametres','main');
   Object.assign(p,{nom:val('pa-nom'),sigle:val('pa-sigle'),forme:val('pa-forme'),rccm:val('pa-rccm'),
     siege:val('pa-siege'),tel:val('pa-tel'),mail:val('pa-mail'),tvaPhyto:num('pa-tvap'),tvaStd:num('pa-tvas'),
