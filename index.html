@@ -3789,7 +3789,8 @@ PAGES.rh=async()=>{
    </div>
    <div class="tabs"><div class="tab on" onclick="tabRH('liste',this)">Personnel</div>
     <div class="tab" onclick="tabRH('paie',this)">Bulletins de paie</div>
-    <div class="tab" onclick="tabRH('presence',this)">Présence</div></div>
+    <div class="tab" onclick="tabRH('presence',this)">Présence</div>
+    <div class="tab" onclick="tabRH('decla',this)">Déclarations</div></div>
    <div id="rh-body"></div>`);
   tabRHRender('liste');
 };
@@ -3818,7 +3819,7 @@ async function tabRHRender(t){const box=document.getElementById('rh-body');const
        <option value="present">✅ Présent</option><option value="absent">❌ Absent</option>
        <option value="conge">🏖️ Congé</option><option value="mission">🚗 Mission terrain</option></select></td></tr>`).join('')}
      </table></div>`;
-  }
+  }else if(t==='decla'){rhDeclarations(box);}
 }
 async function setPresence(empId,statut){await dbPut('presences',{id:today()+'-'+empId,empId,date:today(),statut});toast('Pointage enregistré');}
 async function editEmploye(id){const e=id?await dbGet('employes',id):{etp:1,actif:true,role:'commercial',zone:'Abidjan'};
@@ -3830,14 +3831,15 @@ async function editEmploye(id){const e=id?await dbGet('employes',id):{etp:1,acti
    <div class="row"><div class="fld f"><label>Salaire brut/mois</label><input id="e-brut" type="number" value="${e.brut||0}"></div>
    <div class="fld f"><label>ETP</label><input id="e-etp" type="number" step="0.5" value="${e.etp||1}"></div>
    <div class="fld f"><label>Zone</label><select id="e-zone">${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo'].map(z=>`<option ${e.zone===z?'selected':''}>${z}</option>`).join('')}</select></div></div>
-   <div class="fld"><label>Commission 2.5% sur CA</label><select id="e-com"><option value="1" ${e.commission?'selected':''}>Oui (commercial)</option><option value="0" ${!e.commission?'selected':''}>Non</option></select></div>`,
+   <div class="fld"><label>Commission 2.5% sur CA</label><select id="e-com"><option value="1" ${e.commission?'selected':''}>Oui (commercial)</option><option value="0" ${!e.commission?'selected':''}>Non</option></select></div>
+   <div class="fld"><label>Matricule CNPS (pour DISA/DASC)</label><input id="e-matcnps" value="${esc(e.matriculeCnps||'')}" placeholder="N° immatriculation salarié"></div>`,
    `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer ?','async()=>{await dbDel(\\'employes\\',\\'${id}\\');go(\\'rh\\')}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
     <button class="btn-p" onclick="saveEmploye('${id||''}')">Enregistrer</button>`);
 }
 async function saveEmploye(id){const e=id?await dbGet('employes',id):{id:uid(),actif:true,embauche:today()};
   Object.assign(e,{nom:val('e-nom'),fonction:val('e-fct'),role:val('e-role'),brut:num('e-brut'),
-    etp:num('e-etp'),zone:val('e-zone'),commission:val('e-com')==='1'});
+    etp:num('e-etp'),zone:val('e-zone'),commission:val('e-com')==='1',matriculeCnps:val('e-matcnps')});
   await dbPut('employes',e);closeModal();toast('Employé enregistré');go('rh');}
 function calcPaie(emp,p,commission){
   const brut=emp.brut*emp.etp;const cotisSal=brut*0.063; // CNPS part salariale ~6.3%
@@ -3894,6 +3896,151 @@ async function imprimerBulletin(id){const p=await dbGet('paies',id);const param=
    <tr><td>Cotisation salariale</td><td class="r">- ${FCFA(p.cotisSal)}</td></tr>
    <tr><td><b>NET À PAYER</b></td><td class="r"><b>${FCFA(p.net)}</b></td></tr></table>`;
   apercu('Bulletin '+p.nom,corps,'table{width:100%;border-collapse:collapse}td{padding:6px;border-bottom:1px solid #eee}.r{text-align:right}');
+}
+
+/* ====== RH — DÉCLARATIONS ITS / CNPS / ÉTAT 301-302 / FDFP / DISA-DASC ====== */
+let RH_PER={mois:today().slice(0,7),annee:new Date().getFullYear()};
+const DECL_STYLE='table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}th{background:#f1f5f9;text-align:left}.r{text-align:right}.tot{font-weight:700;background:#f8fafc}';
+function declEntete(param,titre,periodeLab){
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start">
+   <div><h2 style="color:#1f7a3d;margin:0 0 4px">${esc(param.nom)}</h2>
+    <div style="font-size:11px;color:#555">RCCM ${esc(param.rccm||'')} • NCC ${esc(param.ncc||'')}<br>
+    N° employeur CNPS ${esc(param.cnpsNum||'—')} • ${esc(param.siege||'')}</div></div>
+   <div style="text-align:right"><h3 style="margin:0">${titre}</h3><div style="font-size:12px;color:#555">${periodeLab}</div></div></div><hr style="margin:12px 0">`;
+}
+async function rhDeclarations(box){
+  const param=await dbGet('parametres','main');
+  box.innerHTML=`<div class="card">
+   <div class="row"><div class="fld f"><label>Période mensuelle (ITS / CNPS)</label>
+     <input id="rh-per-mois" type="month" value="${RH_PER.mois}" onchange="RH_PER.mois=this.value;tabRHRender('decla')"></div>
+    <div class="fld f"><label>Exercice annuel (État 301/302, FDFP, DISA/DASC)</label>
+     <input id="rh-per-an" type="number" value="${RH_PER.annee}" onchange="RH_PER.annee=parseInt(this.value);tabRHRender('decla')"></div></div>
+   <p class="sm txt-m">Calculs basés sur les bulletins déjà générés (onglet Bulletins de paie). Ces documents sont des aides au calcul à reporter sur les formulaires officiels DGI / CNPS / FDFP — à valider avec votre expert-comptable.</p></div>
+   <div class="row">
+    <div class="card f"><div class="card-h">🏛️ Impôts (DGI) — mensuel</div>
+     <p class="sm txt-m">Déclaration ITS du mois ${RH_PER.mois}</p>
+     <button class="btn-b btn-sm" onclick="declITS()">🖨️ Aperçu Déclaration ITS</button></div>
+    <div class="card f"><div class="card-h">🧓 CNPS — mensuel</div>
+     <p class="sm txt-m">Bordereau de cotisations du mois ${RH_PER.mois}</p>
+     <button class="btn-b btn-sm" onclick="declCNPS()">🖨️ Aperçu Déclaration CNPS</button></div></div>
+   <div class="row">
+    <div class="card f"><div class="card-h">📄 État 301 — annuel ${RH_PER.annee}</div>
+     <p class="sm txt-m">Récapitulatif des salaires versés (exercice ${RH_PER.annee})</p>
+     <button class="btn-b btn-sm" onclick="declEtat301()">🖨️ Aperçu État 301</button></div>
+    <div class="card f"><div class="card-h">📋 Détail État 301 — annuel</div>
+     <p class="sm txt-m">Liste nominative par salarié (annexe)</p>
+     <button class="btn-b btn-sm" onclick="declEtat301Detail()">🖨️ Aperçu Détail État 301</button></div></div>
+   <div class="row">
+    <div class="card f"><div class="card-h">🧾 État 302 — annuel ${RH_PER.annee}</div>
+     <p class="sm txt-m">Honoraires, commissions, courtages versés à des tiers (compte 633)</p>
+     <button class="btn-b btn-sm" onclick="declEtat302()">🖨️ Aperçu État 302</button></div>
+    <div class="card f"><div class="card-h">🎓 FDFP — annuel ${RH_PER.annee}</div>
+     <p class="sm txt-m">Taxe d'apprentissage (${param.tauxTAP||0.4}%) + Taxe formation continue (${param.tauxTFPC||1.2}%)</p>
+     <button class="btn-b btn-sm" onclick="declFDFP()">🖨️ Aperçu FDFP</button></div></div>
+   <div class="row">
+    <div class="card f"><div class="card-h">👥 DISA — annuel ${RH_PER.annee}</div>
+     <p class="sm txt-m">Déclaration Individuelle des Salaires Annuels (CNPS)</p>
+     <button class="btn-b btn-sm" onclick="declDisaDasc('DISA')">🖨️ Aperçu DISA</button></div>
+    <div class="card f"><div class="card-h">📑 DASC — annuel ${RH_PER.annee}</div>
+     <p class="sm txt-m">Déclaration Annuelle des Salaires et Cotisations (jointe à la DISA)</p>
+     <button class="btn-b btn-sm" onclick="declDisaDasc('DASC')">🖨️ Aperçu DASC</button></div></div>`;
+}
+async function paiesDuMois(mois){return (await dbAll('paies')).filter(x=>x.periode===mois);}
+async function paiesDeLannee(an){return (await dbAll('paies')).filter(x=>(x.periode||'').startsWith(String(an)));}
+
+async function declITS(){
+  const param=await dbGet('parametres','main');const paies=await paiesDuMois(RH_PER.mois);
+  if(!paies.length){toast('Aucun bulletin généré pour '+RH_PER.mois);return;}
+  const totBrut=paies.reduce((a,p)=>a+p.brut,0),totIts=paies.reduce((a,p)=>a+Math.round(p.brut*param.tauxITS/100),0);
+  const corps=declEntete(param,'DÉCLARATION ITS','Mois de '+fmtD(RH_PER.mois+'-01').slice(3))+
+   `<table><tr><th>Employé</th><th class="r">Salaire brut</th><th class="r">ITS (${param.tauxITS}%)</th></tr>
+    ${paies.map(p=>`<tr><td>${esc(p.nom)}</td><td class="r">${FCFA(p.brut)}</td><td class="r">${FCFA(Math.round(p.brut*param.tauxITS/100))}</td></tr>`).join('')}
+    <tr class="tot"><td>TOTAL (${paies.length} salarié(s))</td><td class="r">${FCFA(totBrut)}</td><td class="r">${FCFA(totIts)}</td></tr></table>
+    <p style="font-size:11px;color:#555;margin-top:14px">Barème ITS appliqué en taux moyen simplifié — vérifier le barème progressif DGI (quotient familial) avant télédéclaration sur e-impots.gouv.ci.</p>`;
+  apercu('Déclaration ITS '+RH_PER.mois,corps,DECL_STYLE);
+}
+async function declCNPS(){
+  const param=await dbGet('parametres','main');const paies=await paiesDuMois(RH_PER.mois);
+  if(!paies.length){toast('Aucun bulletin généré pour '+RH_PER.mois);return;}
+  const plaf=param.cnpsPlafond||1647315;
+  const lignes=paies.map(p=>{const base=Math.min(p.brut,plaf);return{nom:p.nom,brut:p.brut,base,sal:p.cotisSal,patr:p.chargesPatr};});
+  const totSal=lignes.reduce((a,l)=>a+l.sal,0),totPatr=lignes.reduce((a,l)=>a+l.patr,0);
+  const corps=declEntete(param,'BORDEREAU DE COTISATIONS CNPS','Mois de '+fmtD(RH_PER.mois+'-01').slice(3))+
+   `<table><tr><th>Employé</th><th class="r">Brut</th><th class="r">Base plafonnée</th><th class="r">Part salariale</th><th class="r">Part patronale</th></tr>
+    ${lignes.map(l=>`<tr><td>${esc(l.nom)}</td><td class="r">${FCFA(l.brut)}</td><td class="r">${FCFA(l.base)}</td><td class="r">${FCFA(l.sal)}</td><td class="r">${FCFA(l.patr)}</td></tr>`).join('')}
+    <tr class="tot"><td colspan=3>TOTAL À VERSER</td><td class="r">${FCFA(totSal)}</td><td class="r">${FCFA(totPatr)}</td></tr>
+    <tr class="tot"><td colspan=4>TOTAL GÉNÉRAL</td><td class="r">${FCFA(totSal+totPatr)}</td></tr></table>
+    <p style="font-size:11px;color:#555;margin-top:14px">Plafond mensuel de cotisation : ${FCFA(plaf)} (paramétrable dans Paramètres). Branches prestations familiales / AT non détaillées ici — reporter sur le bordereau e-CNPS officiel.</p>`;
+  apercu('Déclaration CNPS '+RH_PER.mois,corps,DECL_STYLE);
+}
+async function declEtat301(){
+  const param=await dbGet('parametres','main');const paies=await paiesDeLannee(RH_PER.annee);
+  if(!paies.length){toast('Aucun bulletin pour l\u2019exercice '+RH_PER.annee);return;}
+  const parEmp={};for(const p of paies){if(!parEmp[p.empId])parEmp[p.empId]={nom:p.nom,brut:0,its:0,mois:0};
+    parEmp[p.empId].brut+=p.brut;parEmp[p.empId].its+=Math.round(p.brut*param.tauxITS/100);parEmp[p.empId].mois++;}
+  const rows=Object.values(parEmp);const totBrut=rows.reduce((a,r)=>a+r.brut,0),totIts=rows.reduce((a,r)=>a+r.its,0);
+  const corps=declEntete(param,'ÉTAT 301 — RÉCAPITULATIF DES SALAIRES','Exercice '+RH_PER.annee)+
+   `<table><tr><th>Effectif déclaré</th><td class="r">${rows.length}</td></tr>
+    <tr><th>Total salaires bruts versés</th><td class="r">${FCFA(totBrut)}</td></tr>
+    <tr><th>Total ITS retenu à la source</th><td class="r">${FCFA(totIts)}</td></tr></table>
+    <p style="font-size:11px;color:#555;margin-top:14px">Récapitulatif global — voir « Détail État 301 » pour la liste nominative par salarié à joindre. Document à reporter sur le formulaire DGI officiel avant le délai légal de dépôt.</p>`;
+  apercu('État 301 '+RH_PER.annee,corps,DECL_STYLE);
+}
+async function declEtat301Detail(){
+  const param=await dbGet('parametres','main');const paies=await paiesDeLannee(RH_PER.annee);
+  if(!paies.length){toast('Aucun bulletin pour l\u2019exercice '+RH_PER.annee);return;}
+  const parEmp={};for(const p of paies){if(!parEmp[p.empId])parEmp[p.empId]={nom:p.nom,brut:0,its:0,mois:0};
+    parEmp[p.empId].brut+=p.brut;parEmp[p.empId].its+=Math.round(p.brut*param.tauxITS/100);parEmp[p.empId].mois++;}
+  const rows=Object.values(parEmp).sort((a,b)=>a.nom<b.nom?-1:1);
+  const corps=declEntete(param,'DÉTAIL ÉTAT 301 — LISTE NOMINATIVE','Exercice '+RH_PER.annee)+
+   `<table><tr><th>#</th><th>Nom du salarié</th><th class="r">Mois payés</th><th class="r">Salaire brut annuel</th><th class="r">ITS retenu</th></tr>
+    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.nom)}</td><td class="r">${r.mois}</td><td class="r">${FCFA(r.brut)}</td><td class="r">${FCFA(r.its)}</td></tr>`).join('')}
+    <tr class="tot"><td colspan=3>TOTAL</td><td class="r">${FCFA(rows.reduce((a,r)=>a+r.brut,0))}</td><td class="r">${FCFA(rows.reduce((a,r)=>a+r.its,0))}</td></tr></table>`;
+  apercu('Détail État 301 '+RH_PER.annee,corps,DECL_STYLE);
+}
+async function declEtat302(){
+  const param=await dbGet('parametres','main');
+  const dps=(await dbAll('depenses')).filter(d=>d.categorie==='633'&&(d.date||'').startsWith(String(RH_PER.annee)));
+  if(!dps.length){toast('Aucune dépense « Honoraires » (633) enregistrée pour '+RH_PER.annee);return;}
+  const parBenef={};for(const d of dps){const k=d.beneficiaire||'(bénéficiaire non renseigné)';
+    if(!parBenef[k])parBenef[k]={benef:k,ht:0,n:0};parBenef[k].ht+=d.ht;parBenef[k].n++;}
+  const rows=Object.values(parBenef).sort((a,b)=>b.ht-a.ht);const tot=rows.reduce((a,r)=>a+r.ht,0);
+  const corps=declEntete(param,'ÉTAT 302 — HONORAIRES, COMMISSIONS, COURTAGES','Exercice '+RH_PER.annee)+
+   `<table><tr><th>Bénéficiaire</th><th class="r">Nb opérations</th><th class="r">Montant HT versé</th></tr>
+    ${rows.map(r=>`<tr><td>${esc(r.benef)}</td><td class="r">${r.n}</td><td class="r">${FCFA(r.ht)}</td></tr>`).join('')}
+    <tr class="tot"><td>TOTAL</td><td class="r">${dps.length}</td><td class="r">${FCFA(tot)}</td></tr></table>
+    <p style="font-size:11px;color:#555;margin-top:14px">Basé sur les dépenses catégorie 633 « Honoraires ». Renseignez le champ Bénéficiaire sur chaque dépense pour une liste nominative complète, ainsi que le NCC du prestataire si disponible.</p>`;
+  apercu('État 302 '+RH_PER.annee,corps,DECL_STYLE);
+}
+async function declFDFP(){
+  const param=await dbGet('parametres','main');const paies=await paiesDeLannee(RH_PER.annee);
+  const masse=paies.length?paies.reduce((a,p)=>a+p.brut,0):(await dbAll('employes')).filter(e=>e.actif).reduce((a,e)=>a+e.brut*e.etp*12,0);
+  const tap=Math.round(masse*(param.tauxTAP||0.4)/100),tfpc=Math.round(masse*(param.tauxTFPC||1.2)/100);
+  const corps=declEntete(param,'DÉCLARATION FDFP','Exercice '+RH_PER.annee+(paies.length?'':' (estimation sur masse salariale théorique — générez les bulletins pour un calcul exact)'))+
+   `<table><tr><th>Masse salariale brute annuelle</th><td class="r">${FCFA(masse)}</td></tr>
+    <tr><th>Taxe d'Apprentissage — TAP (${param.tauxTAP||0.4}%)</th><td class="r">${FCFA(tap)}</td></tr>
+    <tr><th>Taxe additionnelle Formation Continue — TFPC (${param.tauxTFPC||1.2}%)</th><td class="r">${FCFA(tfpc)}</td></tr>
+    <tr class="tot"><td>TOTAL DÛ AU FDFP</td><td class="r">${FCFA(tap+tfpc)}</td></tr></table>
+    <p style="font-size:11px;color:#555;margin-top:14px">Taux réglementaires FDFP : 0,4% (apprentissage) + 1,2% (formation continue) de la masse salariale brute. Vous pouvez monter un projet de formation auprès du FDFP pour récupérer une partie de la TAP.</p>`;
+  apercu('Déclaration FDFP '+RH_PER.annee,corps,DECL_STYLE);
+}
+async function declDisaDasc(type){
+  const param=await dbGet('parametres','main');const paies=await paiesDeLannee(RH_PER.annee);const emps=await dbAll('employes');
+  if(!paies.length){toast('Aucun bulletin pour l\u2019exercice '+RH_PER.annee);return;}
+  const plaf=(param.cnpsPlafond||1647315)*12;
+  const parEmp={};for(const p of paies){if(!parEmp[p.empId])parEmp[p.empId]={nom:p.nom,brut:0,sal:0,patr:0};
+    parEmp[p.empId].brut+=p.brut;parEmp[p.empId].sal+=p.cotisSal;parEmp[p.empId].patr+=p.chargesPatr;}
+  const rows=Object.entries(parEmp).map(([id,r])=>{const e=emps.find(x=>x.id===id);
+    return Object.assign(r,{mat:e?.matriculeCnps||'—',base:Math.min(r.brut,plaf)});}).sort((a,b)=>a.nom<b.nom?-1:1);
+  const totBrut=rows.reduce((a,r)=>a+r.brut,0),totCot=rows.reduce((a,r)=>a+r.sal+r.patr,0);
+  const titre=type==='DASC'?'DASC — DÉCLARATION ANNUELLE DES SALAIRES ET COTISATIONS':'DISA — DÉCLARATION INDIVIDUELLE DES SALAIRES ANNUELS';
+  const corps=declEntete(param,titre,'Exercice '+RH_PER.annee)+
+   `<table><tr><th>#</th><th>Salarié</th><th>Matricule CNPS</th><th class="r">Salaire annuel soumis</th><th class="r">Cotisation salariale</th><th class="r">Cotisation patronale</th></tr>
+    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.nom)}</td><td>${esc(r.mat)}</td><td class="r">${FCFA(r.base)}</td><td class="r">${FCFA(r.sal)}</td><td class="r">${FCFA(r.patr)}</td></tr>`).join('')}
+    <tr class="tot"><td colspan=3>TOTAL (${rows.length} salarié(s))</td><td class="r">${FCFA(totBrut)}</td><td colspan=2 class="r">${FCFA(totCot)}</td></tr></table>
+    ${type==='DASC'?'<p style="margin-top:30px">Fait à Abidjan, le '+fmtD(today())+'<br><br>Cachet et signature du déclarant :</p>':
+     '<p style="font-size:11px;color:#555;margin-top:14px">À déposer avant le 15 décembre via le portail e-CNPS, accompagnée de la DASC signée et cachetée (support papier).</p>'}`;
+  apercu(titre.split(' — ')[0]+' '+RH_PER.annee,corps,DECL_STYLE);
 }
 
 /* ---- DÉCLARATIONS FISCALES & SOCIALES ---- */
@@ -3986,6 +4133,10 @@ PAGES.parametres=async()=>{
      <div class="fld f"><label>IS %</label><input id="pa-is" type="number" value="${p.tauxIS}"></div>
      <div class="fld f"><label>ITS %</label><input id="pa-its" type="number" value="${p.tauxITS}"></div></div>
     <div class="fld"><label>Clé API Google Maps (optionnelle, usage intensif)</label><input id="pa-gmap" value="${esc(p.gmapKey||'')}" placeholder="AIza... — non requise pour la carte de base"></div>
+    <div class="row"><div class="fld f"><label>N° immatriculation employeur CNPS</label><input id="pa-cnpsnum" value="${esc(p.cnpsNum||'')}" placeholder="ex: 123456-A"></div>
+     <div class="fld f"><label>Plafond mensuel CNPS (FCFA)</label><input id="pa-cnpsplaf" type="number" value="${p.cnpsPlafond||1647315}"></div>
+     <div class="fld f"><label>FDFP — Taxe apprentissage %</label><input id="pa-tap" type="number" step="0.1" value="${p.tauxTAP!=null?p.tauxTAP:0.4}"></div>
+     <div class="fld f"><label>FDFP — Taxe formation continue %</label><input id="pa-tfpc" type="number" step="0.1" value="${p.tauxTFPC!=null?p.tauxTFPC:1.2}"></div></div>
     <button class="btn-p" onclick="saveParam()">Enregistrer</button></div>
    <div class="row">
     <div class="card f"><div class="card-h">👤 Utilisateurs</div>
@@ -4011,7 +4162,9 @@ async function saveParam(){const p=await dbGet('parametres','main');
     siege:val('pa-siege'),tel:val('pa-tel'),mail:val('pa-mail'),tvaPhyto:num('pa-tvap'),tvaStd:num('pa-tvas'),
     tauxCNPS:num('pa-cnps'),tauxIS:num('pa-is'),tauxITS:num('pa-its'),
     ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap'),
-    teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots')});
+    teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots'),
+    cnpsNum:val('pa-cnpsnum'),cnpsPlafond:num('pa-cnpsplaf')||1647315,
+    tauxTAP:num('pa-tap'),tauxTFPC:num('pa-tfpc')});
   await dbPut('parametres',p);toast('Paramètres enregistrés');}
 async function exportData(){const dump={};for(const s of STORES)dump[s]=await dbAll(s);
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
@@ -4753,7 +4906,8 @@ async function depenseModal(id){const d=id?await dbGet('depenses',id):{date:toda
    <div class="row"><div class="fld f"><label>Mode de paiement</label><select id="dp-mode">
       ${[['571','Espèces (caisse)'],['531','Mobile Money'],['521','Banque'],['401','À crédit fournisseur']].map(([v,l])=>`<option value="${v}" ${d.mode===v?'selected':''}>${l}</option>`).join('')}</select></div>
     <div class="fld f"><label>Fournisseur (option)</label><select id="dp-fourn"><option value="">—</option>
-      ${fs.map(f=>`<option value="${f.id}" ${d.fournId===f.id?'selected':''}>${esc(f.nom)}</option>`).join('')}</select></div></div>`,
+      ${fs.map(f=>`<option value="${f.id}" ${d.fournId===f.id?'selected':''}>${esc(f.nom)}</option>`).join('')}</select></div></div>
+   <div class="fld"><label>Bénéficiaire (nom — requis si Honoraires, pour État 302)</label><input id="dp-benef" value="${esc(d.beneficiaire||'')}" placeholder="Nom du prestataire / consultant"></div>`,
    `${id?`<button class="btn-r" style="margin-right:auto" onclick="supprimerDepense('${id}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
     <button class="btn-p" onclick="saveDepense('${id||''}')">Enregistrer</button>`);
@@ -4766,7 +4920,7 @@ async function saveDepense(id){const ht=num('dp-ht'),tx=num('dp-tva');const tva=
   const d=id?await dbGet('depenses',id):{id:uid()};
   if(!d.num)d.num='DEP-'+await nextSeq('depense');
   if(id)await delEcrituresPiece(d.num);
-  Object.assign(d,{date:val('dp-date'),categorie:cat,libelle:val('dp-lib'),ht,tvaTaux:tx,tva,ttc,mode,fournId:val('dp-fourn')});
+  Object.assign(d,{date:val('dp-date'),categorie:cat,libelle:val('dp-lib'),ht,tvaTaux:tx,tva,ttc,mode,fournId:val('dp-fourn'),beneficiaire:val('dp-benef')});
   await dbPut('depenses',d);
   await ensureCompte(cat,(DEP_CATS.find(c=>c[0]===cat)||[])[1]||'Charge','charge');
   const lignes=[{compte:cat,debit:ht,credit:0}];
@@ -5798,6 +5952,10 @@ async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p
   if(!p.ncc||p.ncc==='CI-2022-0017016'){p.ncc='CI-2022-0017016 Q';chg=true;}
   if(!p.rccm||p.rccm==='CI-2022-0017016 Q'){p.rccm='CI-ABJ-03-2022-B12-00267';chg=true;}
   if(!p.centre||p.centre==='CME Yopougon'){p.centre='Yopougon 4';chg=true;}
+  if(p.cnpsPlafond===undefined){p.cnpsPlafond=1647315;chg=true;}
+  if(p.tauxTAP===undefined){p.tauxTAP=0.4;chg=true;}
+  if(p.tauxTFPC===undefined){p.tauxTFPC=1.2;chg=true;}
+  if(p.cnpsNum===undefined){p.cnpsNum='';chg=true;}
   if(chg)await dbPut('parametres',p);
 }
 (async()=>{
