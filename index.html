@@ -92,6 +92,90 @@ tr:hover td{background:#f8fafc}
 .progress{height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden}
 .progress>i{display:block;height:100%;background:var(--vert)}
 @media(max-width:860px){.sidebar{position:fixed;left:-210px;z-index:200;transition:.2s}.sidebar.open{left:0}.main{max-width:100vw}}
+
+/* ═══════════════════════════════════════════════
+   SANIX AFRICA — SIGNATURE OFFICIELLE DU LOGICIEL
+   ═══════════════════════════════════════════════ */
+
+/* Signature login */
+.login-sig{
+  margin-top:22px;padding-top:16px;
+  border-top:1px solid #e2e8f0;
+  text-align:center;
+}
+.login-sig .sig-brand{
+  font-size:11.5px;font-weight:800;letter-spacing:.8px;
+  color:#1d3f6e;text-transform:uppercase;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  margin-bottom:3px;
+}
+.login-sig .sig-brand::before,.login-sig .sig-brand::after{
+  content:'';display:inline-block;height:1px;width:22px;
+  background:linear-gradient(90deg,transparent,#1d3f6e);
+}
+.login-sig .sig-brand::after{transform:scaleX(-1);}
+.login-sig .sig-div{
+  font-size:10px;color:#64748b;font-weight:600;
+  letter-spacing:.5px;text-transform:uppercase;margin-bottom:5px;
+}
+.login-sig .sig-tel{
+  font-size:10.5px;color:#2c66b0;font-weight:600;margin-bottom:4px;
+}
+.login-sig .sig-copy{
+  font-size:9.5px;color:#94a3b8;letter-spacing:.2px;
+  line-height:1.5;
+}
+.login-sig .sig-shield{
+  display:inline-block;font-size:14px;margin-bottom:2px;
+}
+
+/* Signature sidebar */
+.sidebar-sig{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(180deg,rgba(255,255,255,0) 0%,#fff 18%);
+  padding:18px 14px 14px;
+  border-top:1px solid var(--bord);
+  text-align:center;
+}
+.sidebar-sig .sb-logo{
+  font-size:10.5px;font-weight:800;color:#1d3f6e;
+  text-transform:uppercase;letter-spacing:.7px;margin-bottom:2px;
+}
+.sidebar-sig .sb-div{
+  font-size:9.5px;color:#2c66b0;font-weight:600;
+  letter-spacing:.4px;margin-bottom:4px;
+}
+.sidebar-sig .sb-sep{
+  height:1px;background:linear-gradient(90deg,transparent,#cbd5e1,transparent);
+  margin:5px 0;
+}
+.sidebar-sig .sb-tel{
+  font-size:9px;color:#64748b;font-weight:600;margin-bottom:2px;
+}
+.sidebar-sig .sb-copy{
+  font-size:8.5px;color:#94a3b8;line-height:1.5;
+}
+.sidebar-sig .sb-icon{font-size:12px;}
+
+/* Ajuste la sidebar pour laisser la place à la sig */
+.sidebar{padding-bottom:100px !important;}
+
+/* Signature dans les documents imprimés */
+@media print{
+  .print-sig-footer{
+    display:block !important;
+    position:fixed;bottom:0;left:0;right:0;
+    border-top:2px solid #1d3f6e;
+    padding:6px 20px;
+    font-size:8.5pt;
+    display:flex;align-items:center;justify-content:space-between;
+    color:#475569;
+    background:#fff;
+  }
+  .print-sig-footer .ps-left{font-weight:700;color:#1d3f6e;}
+  .print-sig-footer .ps-right{text-align:right;font-size:7.5pt;color:#64748b;}
+}
+.print-sig-footer{display:none;}
 </style>
 </head>
 <body>
@@ -108,6 +192,18 @@ tr:hover td{background:#f8fafc}
     <button class="btn-p" style="width:100%;margin-top:20px;padding:11px" onclick="login()">Se connecter</button>
     <div id="lg-err" class="txt-r sm center" style="margin-top:10px;display:none">Identifiants invalides</div>
     <div class="sm txt-m center" style="margin-top:16px">admin / psf2026</div>
+
+    <!-- ── SIGNATURE SANIX AFRICA ── -->
+    <div class="login-sig">
+      <div class="sig-shield">🛡️</div>
+      <div class="sig-brand">Sanix Africa</div>
+      <div class="sig-div">Division Technologies</div>
+      <div class="sig-tel">📞 +225 07 79 10 81 07 &nbsp;|&nbsp; 01 40 01 77 51</div>
+      <div class="sig-copy">
+        &copy; 2026 — Tous droits réservés<br>
+        Toute reproduction ou distribution non autorisée est strictement interdite
+      </div>
+    </div>
   </div>
 </div>
 
@@ -115,6 +211,9 @@ tr:hover td{background:#f8fafc}
 <div id="app">
   <div class="topbar">
     <div class="brand"><span class="v">PSF</span> <span class="b">ERP</span></div>
+    <span style="font-size:10px;color:#94a3b8;margin-left:10px;font-weight:600;letter-spacing:.4px;white-space:nowrap" title="Conçu par Sanix Africa Division Technologies — +225 07 79 10 81 07 / 01 40 01 77 51">
+      by <span style="color:#1d3f6e;font-weight:700;">Sanix Africa</span>
+    </span>
     <div class="sp"></div>
     <select id="depotGlobal" class="depot-sel" onchange="setDepot(this.value)"></select>
     <div class="user-chip">
@@ -124,8 +223,28 @@ tr:hover td{background:#f8fafc}
     </div>
   </div>
   <div class="layout">
-    <div class="sidebar" id="sidebar"></div>
+    <div class="sidebar" id="sidebar">
+      <!-- ── SIGNATURE SIDEBAR ── -->
+      <div class="sidebar-sig">
+        <div class="sb-sep"></div>
+        <div class="sb-logo">🏭 Sanix Africa</div>
+        <div class="sb-div">Division Technologies</div>
+        <div class="sb-tel">📞 +225 07 79 10 81 07</div>
+        <div class="sb-tel">01 40 01 77 51</div>
+        <div class="sb-sep"></div>
+        <div class="sb-copy">&copy; 2026 — Tous droits réservés<br>Distribution illégale interdite</div>
+      </div>
+    </div>
     <div class="main" id="main"></div>
+  </div>
+</div>
+
+<!-- ── PIED DE PAGE IMPRESSION SANIX AFRICA ── -->
+<div class="print-sig-footer">
+  <div class="ps-left">🏭 SANIX AFRICA — Division Technologies</div>
+  <div class="ps-right">
+    Logiciel PSF ERP — Conçu et développé par Sanix Africa Division Technologies<br>
+    📞 +225 07 79 10 81 07 / 01 40 01 77 51 &nbsp;|&nbsp; &copy; 2026 Tous droits réservés — Distribution illégale interdite
   </div>
 </div>
 
