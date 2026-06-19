@@ -2496,10 +2496,11 @@ async function seed(){
   if(p) return;
   // paramètres entreprise
   await dbPut('parametres',{id:'main',
-    nom:'PHYTO STRIKE FORCE',sigle:'PSF',forme:'SARL',rccm:'CI-2022-0017016 Q',
+    nom:'PHYTO STRIKE FORCE',sigle:'PSF',forme:'SARL',rccm:'CI-ABJ-03-2022-B12-00267',
     siege:'Abidjan, Yopougon Million',tel:'0748406509',mail:'phytostrikeforce@gmail.com',
     dirigeant:'Dosso Adam',tvaPhyto:2,tvaStd:18,tauxCNPS:7.7,tauxIS:25,
-    ncc:'CI-2022-0017016',regime:'RNI (Réel Normal)',centre:'CME Yopougon',
+    ncc:'CI-2022-0017016 Q',regime:'RNI (Réel Normal)',centre:'Yopougon 4',
+    teledeclarant:'2397796793674',eimpots:'https://e-impots.gouv.ci',
     tauxITS:1.5,commercial:2.5,devise:'F CFA',
     momo:{wave:true,om:true,mtn:true}});
   // exercice
@@ -3334,7 +3335,7 @@ async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=a
   const corps=`<div class="head">
     <div><h2 style="color:#1f7a3d;margin:0">${esc(p.nom)} — ${esc(p.sigle)}</h2>
      <div class="mentions">${esc(p.forme)} • ${esc(p.siege)}<br>Tél ${esc(p.tel)} • ${esc(p.mail)}<br>
-     RCCM ${esc(p.rccm)}${p.ncc?' • NCC '+esc(p.ncc):''}${p.regime?'<br>Régime: '+esc(p.regime):''}${p.centre?' • '+esc(p.centre):''}</div></div>
+     RCCM ${esc(p.rccm)}${p.ncc?' • NCC '+esc(p.ncc):''}${p.regime?'<br>Régime: '+esc(p.regime):''}${p.centre?' • Service: '+esc(p.centre):''}${tFNE&&p.teledeclarant?'<br>N° télédéclarant: '+esc(p.teledeclarant):''}</div></div>
     ${tFNE?`<div class="qr">${qr}<div style="font-size:9px">Vérification DGI e-facture</div></div>`:''}</div>
    ${tFNE?`<div class="fne-band">${titre}</div>`:`<h3>${titre}</h3>`}
    <div class="box"><b>N° ${esc(f.num)}</b> • Date ${fmtD(f.date)}${tFNE?(f.refFNE?' • Réf FNE: '+esc(f.refFNE):' • <span style="color:#b45309">FNE à transmettre à la DGI</span>'):''}</div>
@@ -3641,6 +3642,18 @@ PAGES.fiscal=async()=>{
   const cnps=paiesM.reduce((a,x)=>a+x.chargesPatr+x.cotisSal,0);
   const its=paiesM.reduce((a,x)=>a+(x.brut*p.tauxITS/100),0);
   H(pageH('Déclarations Fiscales & Sociales')+`
+   <div class="card"><div class="card-h">🏛️ Identité fiscale du contribuable</div>
+    <div class="row">
+     <div class="f"><div class="sm txt-m">Contribuable</div><div class="bold">${esc(p.nom)}</div></div>
+     <div class="f"><div class="sm txt-m">NCC / IFU</div><div class="bold">${esc(p.ncc||'—')}</div></div>
+     <div class="f"><div class="sm txt-m">RCCM</div><div class="bold">${esc(p.rccm||'—')}</div></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+     <div class="f"><div class="sm txt-m">Service d'assiette</div><div class="bold">${esc(p.centre||'—')}</div></div>
+     <div class="f"><div class="sm txt-m">N° télédéclarant</div><div class="bold">${esc(p.teledeclarant||'—')}</div></div>
+     <div class="f"><div class="sm txt-m">Régime</div><div class="bold">${esc(p.regime||'—')}</div></div>
+    </div>
+    <a href="${esc(p.eimpots||'https://e-impots.gouv.ci')}" target="_blank" class="btn-b btn-sm" style="text-decoration:none;margin-top:12px;display:inline-block">🔗 Télédéclarer sur e-impots.gouv.ci</a></div>
    <div class="card"><div class="card-h">🧾 Déclaration TVA — ${moisCourant}</div>
     <table style="max-width:480px">
      <tr><td>TVA collectée (ventes)</td><td class="right">${FCFA(tvaCollectee)}</td></tr>
@@ -3675,7 +3688,9 @@ PAGES.parametres=async()=>{
     <div class="row"><div class="fld f"><label>NCC / IFU</label><input id="pa-ncc" value="${esc(p.ncc||'')}" placeholder="N° Compte Contribuable"></div>
      <div class="fld f"><label>Régime fiscal</label><select id="pa-regime">
        ${['RNI (Réel Normal)','RSI (Réel Simplifié)','RME (Microentreprise)'].map(x=>`<option ${p.regime===x?'selected':''}>${x}</option>`).join('')}</select></div>
-     <div class="fld f"><label>Centre des impôts</label><input id="pa-centre" value="${esc(p.centre||'')}" placeholder="CME Yopougon"></div></div>
+     <div class="fld f"><label>Service d'assiette</label><input id="pa-centre" value="${esc(p.centre||'')}" placeholder="Yopougon 4"></div></div>
+    <div class="row"><div class="fld f"><label>N° télédéclarant</label><input id="pa-teledec" value="${esc(p.teledeclarant||'')}" placeholder="2397796793674"></div>
+     <div class="fld f"><label>Plateforme e-impôts</label><input id="pa-eimpots" value="${esc(p.eimpots||'https://e-impots.gouv.ci')}"></div></div>
     <div class="row"><div class="fld f"><label>TVA intrants %</label><input id="pa-tvap" type="number" value="${p.tvaPhyto}"></div>
      <div class="fld f"><label>TVA std %</label><input id="pa-tvas" type="number" value="${p.tvaStd}"></div>
      <div class="fld f"><label>CNPS patronal %</label><input id="pa-cnps" type="number" value="${p.tauxCNPS}"></div>
@@ -3701,7 +3716,8 @@ async function saveParam(){const p=await dbGet('parametres','main');
   Object.assign(p,{nom:val('pa-nom'),sigle:val('pa-sigle'),forme:val('pa-forme'),rccm:val('pa-rccm'),
     siege:val('pa-siege'),tel:val('pa-tel'),mail:val('pa-mail'),tvaPhyto:num('pa-tvap'),tvaStd:num('pa-tvas'),
     tauxCNPS:num('pa-cnps'),tauxIS:num('pa-is'),tauxITS:num('pa-its'),
-    ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap')});
+    ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap'),
+    teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots')});
   await dbPut('parametres',p);toast('Paramètres enregistrés');}
 async function exportData(){const dump={};for(const s of STORES)dump[s]=await dbAll(s);
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
@@ -4362,8 +4378,17 @@ async function saveEcheancier(id){const f=await dbGet('factures',id);f.echeancie
   closeModal();toast('Échéancier enregistré ('+ECH.length+' échéances)');go('factures');}
 
 /* ====== INIT ====== */
+async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
+  // corrige anciennes valeurs par défaut et complète les champs fiscaux officiels PSF
+  if(!p.teledeclarant){p.teledeclarant='2397796793674';chg=true;}
+  if(!p.eimpots){p.eimpots='https://e-impots.gouv.ci';chg=true;}
+  if(!p.ncc||p.ncc==='CI-2022-0017016'){p.ncc='CI-2022-0017016 Q';chg=true;}
+  if(!p.rccm||p.rccm==='CI-2022-0017016 Q'){p.rccm='CI-ABJ-03-2022-B12-00267';chg=true;}
+  if(!p.centre||p.centre==='CME Yopougon'){p.centre='Yopougon 4';chg=true;}
+  if(chg)await dbPut('parametres',p);
+}
 (async()=>{
-  try{DB=await openDB();await seed();}catch(e){console.error(e);alert('Erreur init: '+e);}
+  try{DB=await openDB();await seed();await majParamsFiscaux();}catch(e){console.error(e);alert('Erreur init: '+e);}
 })();
 document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 
