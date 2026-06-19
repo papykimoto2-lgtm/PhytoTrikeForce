@@ -2628,7 +2628,7 @@ const NAV=[
  ['Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
    ['rapports','📝','Rapports hebdo'],['carte','📍','Carte & Itinéraires']]],
  ['Comptabilité',[['compta','📒','Comptabilité'],['tresorerie','💰','Trésorerie'],
-   ['fiscal','🏛️','Déclarations']]],
+   ['fiscal','🏛️','Déclarations'],['tiers','📇','Comptes tiers']]],
  ['Ressources',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
 function buildNav(){
@@ -3208,6 +3208,7 @@ PAGES.factures=async()=>{
      <td><span class="tag ${reste<=0?'t-vert':(f.regle?'t-orange':'t-rouge')}">${reste<=0?'Payée':(f.regle?'Partiel':'Impayée')}</span></td>
      <td>${tFNE&&f.statutFNE!=='transmise'?`<button class="btn-b btn-sm" onclick="transmettreFNE('${f.id}')">Transmettre</button>`:''}
         ${reste>0?`<button class="btn-p btn-sm" onclick="reglerFacture('${f.id}')">Régler</button>`:''}
+        ${reste>0?`<button class="btn-g btn-sm" onclick="planEcheancierModal('${f.id}')" title="Facilité de paiement">📅</button>`:''}
         <button class="btn-g btn-sm" onclick="imprimerFacture('${f.id}')">🖨️</button></td></tr>`;}).join('')
     ||'<tr><td colspan=10 class="empty">Aucune facture</td></tr>'}
    </table></div>`);
@@ -3678,6 +3679,7 @@ PAGES.parametres=async()=>{
      <div class="fld f"><label>CNPS patronal %</label><input id="pa-cnps" type="number" value="${p.tauxCNPS}"></div>
      <div class="fld f"><label>IS %</label><input id="pa-is" type="number" value="${p.tauxIS}"></div>
      <div class="fld f"><label>ITS %</label><input id="pa-its" type="number" value="${p.tauxITS}"></div></div>
+    <div class="fld"><label>Clé API Google Maps (optionnelle, usage intensif)</label><input id="pa-gmap" value="${esc(p.gmapKey||'')}" placeholder="AIza... — non requise pour la carte de base"></div>
     <button class="btn-p" onclick="saveParam()">Enregistrer</button></div>
    <div class="row">
     <div class="card f"><div class="card-h">👤 Utilisateurs</div>
@@ -3697,7 +3699,7 @@ async function saveParam(){const p=await dbGet('parametres','main');
   Object.assign(p,{nom:val('pa-nom'),sigle:val('pa-sigle'),forme:val('pa-forme'),rccm:val('pa-rccm'),
     siege:val('pa-siege'),tel:val('pa-tel'),mail:val('pa-mail'),tvaPhyto:num('pa-tvap'),tvaStd:num('pa-tvas'),
     tauxCNPS:num('pa-cnps'),tauxIS:num('pa-is'),tauxITS:num('pa-its'),
-    ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre')});
+    ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap')});
   await dbPut('parametres',p);toast('Paramètres enregistrés');}
 async function exportData(){const dump={};for(const s of STORES)dump[s]=await dbAll(s);
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
@@ -4100,24 +4102,54 @@ function ciMapSVG(markers,route,W,H){W=W||560;H=H||620;
 }
 
 /* ---- CARTE ---- */
+/* ====== GOOGLE MAPS (embed sans clé + liens natifs) ====== */
+function gmapPoint(lat,lng,z){return `https://www.google.com/maps?q=${lat},${lng}&z=${z||8}&hl=fr&output=embed`;}
+function gmapLink(lat,lng){return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;}
+function gmapDirEmbed(route){const o=route[0];
+  const daddr=route.slice(1).map(p=>p.lat+','+p.lng).join('+to:');
+  return `https://www.google.com/maps?saddr=${o.lat},${o.lng}&daddr=${daddr}&hl=fr&output=embed`;}
+function gmapDirLink(route){const o=route[0],d=route[route.length-1];
+  const wp=route.slice(1,-1).map(p=>p.lat+','+p.lng).join('|');
+  return `https://www.google.com/maps/dir/?api=1&origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}`
+    +(wp?`&waypoints=${encodeURIComponent(wp)}`:'')+`&travelmode=driving`;}
+
 PAGES.carte=async()=>{
   const cls=await dbAll('clients'),deps=await dbAll('depots');
-  const markers=[];
-  deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];markers.push({lat:c[0],lng:c[1],label:'🏬 '+d.nom,kind:'depot'});});
-  cls.forEach(c=>{const co=clientCoords(c);markers.push({lat:co.lat,lng:co.lng,label:c.nom,kind:c.statut==='prospect'?'prospect':'client',show:false});});
-  const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
+  window._carte={cls,deps};
   H(pageH('Carte & Itinéraires','<button class="btn-p" onclick="planifierItineraire()">🗺️ Planifier itinéraire</button>')+`
-   <div class="row">
-    <div class="card" style="flex:2">${ciMapSVG(markers,null)}
-      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
-        <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
-        <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt</div></div>
-    <div class="card f"><div class="card-h">Clients &amp; prospects</div>
-     <table><tr><th>Nom</th><th>Localité</th><th>Statut</th></tr>
-     ${cls.map(c=>`<tr><td>${esc(c.nom)}</td><td class="sm">${esc(c.ville||c.zone)}</td>
-       <td><span class="tag ${c.statut==='prospect'?'t-orange':'t-vert'}">${c.statut||'client'}</span></td></tr>`).join('')}</table></div>
-   </div>`);
+   <div class="tabs"><div class="tab on" onclick="carteTab('google',this)">Google Maps</div>
+    <div class="tab" onclick="carteTab('svg',this)">Carte schéma (offline)</div></div>
+   <div id="carte-body"></div>`);
+  carteRender('google');
 };
+function carteTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');carteRender(t);}
+function carteRender(t){const box=document.getElementById('carte-body');const {cls,deps}=window._carte;
+  if(t==='google'){
+    const first=cls[0]?clientCoords(cls[0]):{lat:5.345,lng:-4.024};
+    box.innerHTML=`<div class="row">
+      <div class="card" style="flex:2;padding:0;overflow:hidden">
+        <iframe id="gmap-frame" src="${gmapPoint(first.lat,first.lng,7)}" style="width:100%;height:470px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
+      <div class="card f"><div class="card-h">Localiser un point</div>
+        <select onchange="centrerGmap(this.value)" style="margin-bottom:10px">
+          <option value="">— choisir un client —</option>
+          ${cls.map(c=>{const co=clientCoords(c);return `<option value="${co.lat},${co.lng}">${esc(c.nom)} (${esc(c.ville||c.zone)})</option>`;}).join('')}</select>
+        <table><tr><th>Nom</th><th>Statut</th><th></th></tr>
+        ${cls.map(c=>{const co=clientCoords(c);return `<tr><td class="sm">${esc(c.nom)}</td>
+          <td><span class="tag ${c.statut==='prospect'?'t-orange':'t-vert'}">${c.statut||'client'}</span></td>
+          <td><a href="${gmapLink(co.lat,co.lng)}" target="_blank" class="btn-b btn-sm" style="text-decoration:none">📍 GMaps</a></td></tr>`;}).join('')}</table>
+        <p class="sm txt-m" style="margin-top:8px">Carte Google chargée en ligne. Sans connexion, basculez sur la carte schéma offline.</p>
+      </div></div>`;
+  }else{
+    const markers=[];deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];markers.push({lat:c[0],lng:c[1],label:'🏬 '+d.nom,kind:'depot'});});
+    cls.forEach(c=>{const co=clientCoords(c);markers.push({lat:co.lat,lng:co.lng,label:c.nom,kind:c.statut==='prospect'?'prospect':'client',show:false});});
+    const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
+    box.innerHTML=`<div class="card">${ciMapSVG(markers,null)}
+      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
+      <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
+      <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt</div></div>`;
+  }
+}
+function centrerGmap(v){if(!v)return;const[la,ln]=v.split(',');const f=document.getElementById('gmap-frame');if(f)f.src=gmapPoint(la,ln,12);}
 async function planifierItineraire(){const cls=await dbAll('clients');
   modal('Planifier un itinéraire',`
    <div class="fld"><label>Zone de départ</label><select id="m-zone">
@@ -4142,16 +4174,24 @@ async function voirItineraire(id){
   let dist=0;for(let i=1;i<route.length;i++)dist+=haversine(route[i-1],route[i]);
   ITIN={route,dist,zone};
   const markers=route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
-  const svg=ciMapSVG(markers,route);
   const listHTML=route.map((r,i)=>`<tr><td class="center bold">${i}</td><td>${esc(r.label)}</td>
     <td class="right sm txt-m">${i>0?Math.round(haversine(route[i-1],route[i]))+' km':'départ'}</td></tr>`).join('');
+  const gLink=gmapDirLink(route);
   modal('Itinéraire — '+(route.length-1)+' visites',
-   `<div class="row"><div class="f" style="min-width:240px">${svg}</div>
-    <div class="f"><table><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
-     <div class="bold" style="margin-top:10px">Distance totale ≈ ${Math.round(dist)} km</div>
-     <div class="sm txt-m">Ordre optimisé (plus proche voisin) depuis ${esc(zone)}.</div></div></div>`,
+   `<div class="tabs"><div class="tab on" onclick="itinTab('gmap',this)">Google Maps</div>
+     <div class="tab" onclick="itinTab('svg',this)">Schéma offline</div></div>
+    <div id="itin-map"><iframe src="${gmapDirEmbed(route)}" style="width:100%;height:340px;border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
+    <table style="margin-top:10px"><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
+    <div class="bold" style="margin-top:8px">Distance à vol d'oiseau ≈ ${Math.round(dist)} km</div>
+    <div style="display:none" id="itin-svg-data">${ciMapSVG(markers,route)}</div>`,
    `<button class="btn-g" onclick="closeModal()">Fermer</button>
+    <a href="${gLink}" target="_blank" class="btn-p" style="text-decoration:none">🧭 Ouvrir dans Google Maps</a>
     <button class="btn-b" onclick="imprimerItineraire()">🖨️ Aperçu / Imprimer</button>`,true);
+}
+function itinTab(t,el){document.querySelectorAll('.modal .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');
+  const box=document.getElementById('itin-map');
+  if(t==='svg'){box.innerHTML=document.getElementById('itin-svg-data').innerHTML;}
+  else{box.innerHTML='<iframe src="'+gmapDirEmbed(ITIN.route)+'" style="width:100%;height:340px;border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>';}
 }
 async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('parametres','main');
   const markers=ITIN.route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
@@ -4223,6 +4263,101 @@ async function genererDemo(){
       diagnostic:'Diagnostic terrain (démo)',produitId:p.id,dose:'1,5 L/ha',statut:pick(['ouvert','resolu']),demo:true});}
   toast(nb+' ventes + 3 missions + 3 conseils générés');go('dashboard');
 }
+
+
+/* ====== COMPTES TIERS & FACILITÉS DE PAIEMENT ====== */
+let ECH=[];
+PAGES.tiers=async()=>{
+  H(pageH('Comptes tiers & Recouvrement')+`
+   <div class="tabs"><div class="tab on" onclick="tiersTab('releve',this)">Relevé client (grand livre aux.)</div>
+    <div class="tab" onclick="tiersTab('echeances',this)">Échéances / Facilités</div></div>
+   <div id="tiers-body"></div>`);
+  tiersRender('releve');
+};
+function tiersTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');tiersRender(t);}
+async function tiersRender(t){if(t==='releve')return releveSelect();return echeancesView();}
+async function releveSelect(){const cls=await dbAll('clients');
+  document.getElementById('tiers-body').innerHTML=`<div class="card"><div class="toolbar">
+    <select id="rv-client" onchange="releveTiers(this.value)"><option value="">— Choisir un client —</option>
+    ${cls.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</select></div>
+    <div id="rv-body"><div class="empty">Sélectionnez un client pour afficher son relevé</div></div></div>`;
+}
+async function releveTiers(cid){if(!cid){document.getElementById('rv-body').innerHTML='';return;}
+  const cl=await dbGet('clients',cid);
+  const facs=(await dbAll('factures')).filter(f=>f.clientId===cid&&f.statut!=='annulee');
+  const regs=await dbAll('reglements');
+  let lines=[];
+  facs.forEach(f=>lines.push({date:f.date,libelle:'Facture '+f.num,debit:f.totalTTC,credit:0}));
+  facs.forEach(f=>regs.filter(r=>r.factureId===f.id).forEach(r=>lines.push(
+    {date:r.date,libelle:'Règlement '+f.num+' ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:0,credit:r.montant})));
+  lines.sort((a,b)=>a.date<b.date?-1:1);
+  let solde=0;const rows=lines.map(l=>{solde+=l.debit-l.credit;
+    return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
+    <td class="right">${l.credit?FCFA0(l.credit):''}</td><td class="right bold">${FCFA0(solde)}</td></tr>`;}).join('');
+  window._releve={cl,lines,solde};
+  document.getElementById('rv-body').innerHTML=`
+   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(cl.nom)} — ${esc(cl.ville||cl.zone)} ${cl.ncc?'• NCC '+esc(cl.ncc):''}</div>
+     <button class="btn-b btn-sm" onclick="imprimerReleve()">🖨️ Relevé</button></div>
+   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit</th><th class="right">Crédit</th><th class="right">Solde</th></tr>
+    ${rows||'<tr><td colspan=5 class="empty">Aucun mouvement</td></tr>'}
+    <tr style="background:#f1f5f9"><td colspan=4 class="bold right">SOLDE DÛ</td>
+     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td></tr></table>`;
+}
+async function imprimerReleve(){const {cl,lines,solde}=window._releve;const p=await dbGet('parametres','main');
+  let s=0;const rows=lines.map(l=>{s+=l.debit-l.credit;
+    return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="r">${l.debit?FCFA0(l.debit):''}</td>
+    <td class="r">${l.credit?FCFA0(l.credit):''}</td><td class="r">${FCFA0(s)}</td></tr>`;}).join('');
+  apercu('Relevé '+cl.nom,`<h2 style="color:#1f7a3d">${esc(p.nom)}</h2><h3>RELEVÉ DE COMPTE — ${esc(cl.nom)}</h3>
+   <p>${esc(cl.ville||'')} (${esc(cl.zone||'')})${cl.ncc?' • NCC '+esc(cl.ncc):''} • arrêté au ${fmtD(today())}</p>
+   <table><tr><th>Date</th><th>Libellé</th><th class="r">Débit</th><th class="r">Crédit</th><th class="r">Solde</th></tr>${rows}
+   <tr><td colspan=4 class="r"><b>SOLDE DÛ</b></td><td class="r"><b>${FCFA0(solde)} F</b></td></tr></table>`,
+   'table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px}.r{text-align:right}th{background:#f1f5f9}');
+}
+function computeEcheances(fac){const ech=fac.echeancier||[];let cum=0;const t=today();
+  return ech.map(e=>{cum+=e.montant;const prev=cum-e.montant;let statut;
+    if((fac.regle||0)>=cum)statut='payee';
+    else if((fac.regle||0)>prev)statut='partiel';
+    else if(e.date<t)statut='echu';else statut='avenir';
+    return Object.assign({},e,{cum,statut});});}
+async function echeancesView(){
+  const facs=(await dbAll('factures')).filter(f=>f.echeancier&&f.echeancier.length&&f.statut!=='annulee');
+  const cls=await dbAll('clients');let all=[];
+  facs.forEach(f=>{const cl=cls.find(c=>c.id===f.clientId);computeEcheances(f).forEach(e=>all.push({f,cl,e}));});
+  all.sort((a,b)=>a.e.date<b.e.date?-1:1);
+  const echu=all.filter(x=>x.e.statut==='echu').reduce((a,x)=>a+x.e.montant,0);
+  const avenir=all.filter(x=>x.e.statut==='avenir').reduce((a,x)=>a+x.e.montant,0);
+  document.getElementById('tiers-body').innerHTML=`<div class="grid kpis" style="margin-bottom:16px">
+     <div class="kpi rouge"><div class="lab">Échéances échues (retard)</div><div class="val">${FCFA(echu)}</div></div>
+     <div class="kpi bleu"><div class="lab">Échéances à venir</div><div class="val">${FCFA(avenir)}</div></div></div>
+   <div class="card"><table><tr><th>Échéance</th><th>Client</th><th>Facture</th><th class="right">Montant</th><th>Statut</th><th></th></tr>
+   ${all.map(x=>`<tr><td>${fmtD(x.e.date)}</td><td>${esc(x.cl?.nom||'?')}</td><td>${esc(x.f.num)}</td>
+     <td class="right">${FCFA(x.e.montant)}</td>
+     <td><span class="tag ${({payee:'t-vert',partiel:'t-orange',echu:'t-rouge',avenir:'t-gris'})[x.e.statut]}">${({payee:'Payée',partiel:'Partielle',echu:'Échue',avenir:'À venir'})[x.e.statut]}</span></td>
+     <td>${x.e.statut!=='payee'?`<button class="btn-p btn-sm" onclick="reglerFacture('${x.f.id}')">Encaisser</button>`:''}</td></tr>`).join('')
+   ||'<tr><td colspan=6 class="empty">Aucune facilité de paiement définie. Créez-en depuis Facturation → 📅</td></tr>'}</table></div>`;
+}
+async function planEcheancierModal(id){const f=await dbGet('factures',id);const reste=f.totalTTC-(f.regle||0);
+  modal('Facilité de paiement — '+f.num,`
+   <p class="sm txt-m">Total TTC ${FCFA(f.totalTTC)} • Déjà réglé ${FCFA(f.regle||0)} • Reste <b>${FCFA(reste)}</b></p>
+   <div class="row"><div class="fld f"><label>Nombre d'échéances</label><input id="ec-nb" type="number" value="3" min="1" oninput="previewEch('${id}')"></div>
+    <div class="fld f"><label>Première échéance</label><input id="ec-d1" type="date" value="${today()}" oninput="previewEch('${id}')"></div>
+    <div class="fld f"><label>Périodicité</label><select id="ec-per" onchange="previewEch('${id}')">
+      <option value="30">Mensuelle</option><option value="15">Quinzaine</option><option value="7">Hebdomadaire</option></select></div></div>
+   <div id="ec-preview" style="margin-top:6px"></div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveEcheancier('${id}')">Enregistrer le plan</button>`);
+  previewEch(id);
+}
+async function previewEch(id){const f=await dbGet('factures',id);const reste=f.totalTTC-(f.regle||0);
+  const nb=Math.max(1,Math.round(num('ec-nb'))||1);const per=num('ec-per')||30;const d1=val('ec-d1')||today();
+  const base=Math.floor(reste/nb);ECH=[];
+  for(let i=0;i<nb;i++){const d=new Date(d1);d.setDate(d.getDate()+i*per);
+    ECH.push({id:uid(),date:d.toISOString().slice(0,10),montant:i===nb-1?reste-base*(nb-1):base});}
+  document.getElementById('ec-preview').innerHTML=`<table><tr><th>#</th><th>Date</th><th class="right">Montant</th></tr>
+   ${ECH.map((e,i)=>`<tr><td>${i+1}</td><td>${fmtD(e.date)}</td><td class="right bold">${FCFA(e.montant)}</td></tr>`).join('')}</table>`;
+}
+async function saveEcheancier(id){const f=await dbGet('factures',id);f.echeancier=ECH.slice();await dbPut('factures',f);
+  closeModal();toast('Échéancier enregistré ('+ECH.length+' échéances)');go('factures');}
 
 /* ====== INIT ====== */
 (async()=>{
