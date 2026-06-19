@@ -4564,21 +4564,36 @@ function campCarto(box){
   const zones=Object.keys(ZONE_COORDS);
   const markers=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
     return {lat:co[0],lng:co[1],label:z+' '+cs.map(c=>c.emoji).join(''),kind:'depot'};});
-  const matrice=zones.map(z=>{const cs=culturesDeZone(z);
-    return `<tr><td class="bold">${z}</td><td>${cs.map(c=>`<span class="tag t-gris" style="margin:2px">${c.emoji} ${esc(c.nom)} (${c.part}%)</span>`).join('')||'<span class="txt-m sm">—</span>'}</td></tr>`;}).join('');
+  window._campSVG=ciMapSVG(markers,null);
+  const matrice=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
+    return `<tr><td class="bold">${z} <button class="btn-g btn-sm" onclick="centrerCampGmap(${co[0]},${co[1]})">📍</button></td>
+      <td>${cs.map(c=>`<span class="tag t-gris" style="margin:2px">${c.emoji} ${esc(c.nom)} (${c.part}%)</span>`).join('')||'<span class="txt-m sm">—</span>'}</td></tr>`;}).join('');
   box.innerHTML=`<div class="row">
-    <div class="card" style="flex:2">${ciMapSVG(markers,null)}
-      <p class="sm txt-m" style="margin-top:6px">Répartition des cultures par grande zone de production (Côte d'Ivoire).</p></div>
+    <div class="card" style="flex:2;padding:0;overflow:hidden">
+      <div style="padding:10px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--bord);flex-wrap:wrap">
+        <select onchange="centrerCampGmapSel(this.value)" style="width:auto;min-width:200px">
+          <option value="">🌍 Vue Côte d'Ivoire</option>
+          ${zones.map(z=>{const co=ZONE_COORDS[z];return `<option value="${co[0]},${co[1]}">${z} — ${culturesDeZone(z).map(c=>c.emoji).join('')}</option>`;}).join('')}</select>
+        <button class="btn-g btn-sm" id="camp-toggle" onclick="campMapToggle()">🗺️ Vue schéma</button></div>
+      <div id="camp-map"><iframe id="camp-gmap" src="${gmapPoint(7.5,-5.5,6)}" style="width:100%;height:430px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div></div>
     <div class="card f"><div class="card-h">Cultures par zone</div>
-     <table><tr><th>Zone</th><th>Cultures</th></tr>${matrice}</table></div>
+     <table><tr><th>Zone</th><th>Cultures</th></tr>${matrice}</table>
+     <p class="sm txt-m" style="margin-top:6px">📍 recentre la carte Google sur la zone.</p></div>
    </div>
    <div class="card"><div class="card-h">Part de marché phyto par culture (réf. business plan)</div>
     <table><tr><th>Culture</th><th>Zones</th><th class="right">Part</th><th>Familles d'intrants</th></tr>
-    ${CULTURES.sort((a,b)=>b.part-a.part).map(c=>{const fams=[...new Set(c.interventions.map(i=>i.famille))];
+    ${CULTURES.slice().sort((a,b)=>b.part-a.part).map(c=>{const fams=[...new Set(c.interventions.map(i=>i.famille))];
       return `<tr><td>${c.emoji} ${esc(c.nom)}</td><td class="sm">${c.zones.join(', ')}</td>
       <td class="right"><div class="bold">${c.part}%</div><div class="progress" style="width:90px"><i style="width:${c.part*2}%"></i></div></td>
       <td>${fams.map(f=>`<span class="tag" style="background:${FAM_COL[f]}22;color:${FAM_COL[f]}">${f}</span>`).join(' ')}</td></tr>`;}).join('')}</table></div>`;
 }
+function campMapToggle(){const m=document.getElementById('camp-map');const btn=document.getElementById('camp-toggle');if(!m)return;
+  if(document.getElementById('camp-gmap')){m.innerHTML=window._campSVG||'';if(btn)btn.textContent='🌍 Vue Google';}
+  else{m.innerHTML='<iframe id="camp-gmap" src="'+gmapPoint(7.5,-5.5,6)+'" style="width:100%;height:430px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>';if(btn)btn.textContent='🗺️ Vue schéma';}}
+function centrerCampGmap(la,ln){if(!document.getElementById('camp-gmap'))campMapToggle();
+  const f=document.getElementById('camp-gmap');if(f)f.src=gmapPoint(la,ln,8);}
+function centrerCampGmapSel(v){if(!v){if(!document.getElementById('camp-gmap'))campMapToggle();const f=document.getElementById('camp-gmap');if(f)f.src=gmapPoint(7.5,-5.5,6);return;}
+  const[la,ln]=v.split(',');centrerCampGmap(la,ln);}
 
 /* --- Calendrier saisonnier (Gantt 12 mois) --- */
 function campCalendrier(box){
