@@ -2451,9 +2451,9 @@ let DB, STATE={user:null,depot:null,page:'dashboard'};
 const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','clients',
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
-'missions','conseils','rapports','depenses','seq'];
+'missions','conseils','rapports','depenses','campagnes','seq'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',3);
+  const r=indexedDB.open('PSF_ERP',4);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -2622,17 +2622,18 @@ function setDepot(id){STATE.depot=id;go(STATE.page);}
 /* ====== NAVIGATION ====== */
 const NAV=[
  ['① Pilotage',[['dashboard','📊','Tableau de bord'],['analytique','📈','Analytique']]],
- ['② Approvisionnement',[['fournisseurs','🏭','Fournisseurs'],['produits','🧪','Produits'],
+ ['② Campagnes & Saisonnalité',[['campagnes','🌾','Campagnes & cultures']]],
+ ['③ Approvisionnement',[['fournisseurs','🏭','Fournisseurs'],['produits','🧪','Produits'],
    ['appro','📥','Appro / Achats']]],
- ['③ Stock & Dépôts',[['stock','📦','Stock & Dépôts']]],
- ['④ Prospection & Clients',[['carte','📍','Carte & Itinéraires'],['clients','👥','Clients']]],
- ['⑤ Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
+ ['④ Stock & Dépôts',[['stock','📦','Stock & Dépôts']]],
+ ['⑤ Prospection & Clients',[['carte','📍','Carte & Itinéraires'],['clients','👥','Clients']]],
+ ['⑥ Terrain & Conseil',[['missions','🗺️','Missions terrain'],['conseil','🌱','Conseil & Assistance'],
    ['rapports','📝','Rapports hebdo']]],
- ['⑥ Ventes & Distribution',[['commandes','🛒','Commandes'],['livraisons','🚚','Distribution']]],
- ['⑦ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
- ['⑧ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
+ ['⑦ Ventes & Distribution',[['commandes','🛒','Commandes'],['livraisons','🚚','Distribution']]],
+ ['⑧ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
+ ['⑨ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
    ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations']]],
- ['⑨ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
+ ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
 function buildNav(){
   let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
@@ -2738,6 +2739,7 @@ PAGES.dashboard=async()=>{
   ${nonHom.length?`<div class="card"><div class="card-h">🚫 Produits non homologués (DPVCQ)</div>
     <p class="sm txt-m">Distribution interdite avant homologation Ministère Agriculture :</p>
     <div style="margin-top:8px">${nonHom.map(p=>`<span class="tag t-rouge" style="margin:3px">${esc(p.nom)}</span>`).join('')}</div></div>`:''}
+  ${prochainesFenetresHTML()}
   <p class="sm txt-m">Tous les indicateurs sont calculés en temps réel à partir des transactions (factures, règlements, écritures, stock). Aucune valeur n'est figée.</p>`);
 };
 
@@ -4100,7 +4102,7 @@ const CITIES={
  'abengourou':[6.729,-3.496],'katiola':[8.13,-5.10],'vavoua':[7.38,-6.48],
  'guiglo':[6.54,-7.49],'duékoué':[6.74,-7.34],'bouaké':[7.69,-5.03],
  'yamoussoukro':[6.827,-5.289],'sud-ouest':[5.0,-6.6],'centre-ouest':[6.8,-6.4],
- 'nord':[9.4,-5.6],'bondoukou':[8.04,-2.80]};
+ 'nord':[9.4,-5.6],'bondoukou':[8.04,-2.80],'sud':[5.4,-4.3],'ouest':[7.41,-7.55],'centre':[7.7,-5.0]};
 const CI_BOX={lngMin:-8.7,lngMax:-2.4,latMin:4.2,latMax:10.8};
 const CI_OUTLINE=[[10.3,-7.9],[10.5,-6.2],[9.9,-5.35],[10.35,-4.0],[9.4,-2.78],[8.0,-2.5],
  [6.2,-2.72],[5.1,-3.0],[5.0,-3.9],[4.4,-5.5],[4.35,-6.6],[4.6,-7.55],[6.5,-8.45],[7.8,-8.2],[9.4,-8.25]];
@@ -4493,6 +4495,257 @@ async function saveDepense(id){const ht=num('dp-ht'),tx=num('dp-tva');const tva=
 async function supprimerDepense(id){const d=await dbGet('depenses',id);
   confirmDel('Supprimer la dépense '+d.num+' ? Son écriture comptable sera annulée.',
    `async()=>{const d=await dbGet('depenses','${id}');await delEcrituresPiece(d.num);await dbDel('depenses','${id}');toast('Dépense supprimée');go('depenses')}`);}
+
+
+/* ====== CAMPAGNES & SAISONNALITÉ (cœur métier phyto) ====== */
+const MOIS=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+const FAM_COL={Herbicide:'#1f7a3d',Insecticide:'#e67e22',Fongicide:'#7c3aed',Engrais:'#2c66b0'};
+const DOSE={Herbicide:3,Insecticide:1,Fongicide:1.5,Engrais:50};
+const CULTURES=[
+ {nom:'Cacao',emoji:'🍫',zones:['Sud-Ouest','Sud','Centre-Ouest'],part:30,interventions:[
+   {type:'Désherbage vergers',famille:'Herbicide',stade:'Entretien plantations',mois:[2,3,4],intensite:1},
+   {type:'Lutte anti-mirides',famille:'Insecticide',stade:'Avant récolte principale',mois:[7,8,9,10],intensite:3},
+   {type:'Fongicide pourriture brune',famille:'Fongicide',stade:'Pleine saison des pluies',mois:[6,7,8,9],intensite:2}]},
+ {nom:'Coton',emoji:'🧵',zones:['Nord'],part:45,interventions:[
+   {type:'Herbicide pré/post-levée',famille:'Herbicide',stade:'Semis & levée',mois:[5,6],intensite:2},
+   {type:'Insecticides calendaires',famille:'Insecticide',stade:'Croissance & capsulaison',mois:[7,8,9,10],intensite:3}]},
+ {nom:'Riz',emoji:'🌾',zones:['Centre-Ouest','Ouest','Sud'],part:6,interventions:[
+   {type:'Herbicide sélectif 2,4-D',famille:'Herbicide',stade:'Post-levée 15-30 j',mois:[5,6],intensite:2},
+   {type:'Insecticide',famille:'Insecticide',stade:'Tallage / épiaison',mois:[7,8],intensite:1}]},
+ {nom:'Maïs',emoji:'🌽',zones:['Centre-Ouest','Centre'],part:4,interventions:[
+   {type:'Herbicide sélectif',famille:'Herbicide',stade:'Post-levée',mois:[4,8],intensite:2},
+   {type:'Insecticide foreurs',famille:'Insecticide',stade:'Croissance',mois:[5,9],intensite:1}]},
+ {nom:'Hévéa',emoji:'🌳',zones:['Sud','Sud-Ouest'],part:10,interventions:[
+   {type:'Désherbage glyphosate',famille:'Herbicide',stade:'Entretien lignes & ronds',mois:[1,2,3,11,12],intensite:2}]},
+ {nom:'Anacarde',emoji:'🥜',zones:['Nord','Centre'],part:3,interventions:[
+   {type:'Désherbage total',famille:'Herbicide',stade:'Avant floraison',mois:[12,1],intensite:2}]},
+ {nom:'Palmier à huile',emoji:'🌴',zones:['Sud'],part:2,interventions:[
+   {type:'Désherbage rond',famille:'Herbicide',stade:'Entretien',mois:[3,4,9,10],intensite:1}]}
+];
+const ZONE_COORDS={'Nord':[9.4,-5.6],'Centre':[7.7,-5.0],'Centre-Ouest':[6.8,-6.4],
+ 'Ouest':[7.41,-7.55],'Sud-Ouest':[5.0,-6.6],'Sud':[5.4,-4.3]};
+function culturesDeZone(z){return CULTURES.filter(c=>c.zones.includes(z));}
+function fenetresMois(m){let r=[];CULTURES.forEach(c=>c.interventions.forEach(iv=>{if(iv.mois.includes(m))
+  r.push({culture:c,iv});}));return r;}
+function prochainesFenetresHTML(){const m=new Date().getMonth()+1;const wnd=[m,m%12+1,(m%12)+1%12+1];
+  let items=[];CULTURES.forEach(c=>c.interventions.forEach(iv=>{
+    const hit=iv.mois.find(x=>x===m||x===(m%12+1));if(hit)items.push({c,iv,mois:hit});}));
+  items.sort((a,b)=>a.mois-b.mois);items=items.slice(0,6);
+  if(!items.length)return '';
+  return `<div class="card"><div class="card-h">🌾 Prochaines fenêtres d'intervention phyto (${MOIS[m-1]}–${MOIS[m%12]})</div>
+   <table><tr><th>Culture</th><th>Intervention</th><th>Zones</th><th>Famille</th><th>Fenêtre</th></tr>
+   ${items.map(x=>`<tr><td>${x.c.emoji} ${esc(x.c.nom)}</td><td>${esc(x.iv.type)}<div class="sm txt-m">${esc(x.iv.stade)}</div></td>
+     <td class="sm">${x.c.zones.join(', ')}</td>
+     <td><span class="tag" style="background:${FAM_COL[x.iv.famille]}22;color:${FAM_COL[x.iv.famille]}">${x.iv.famille}</span></td>
+     <td class="sm bold">${x.iv.mois.map(mm=>MOIS[mm-1]).join(' ')}</td></tr>`).join('')}</table>
+   <button class="btn-p btn-sm" style="margin-top:8px" onclick="go('campagnes')">→ Préparer la campagne</button></div>`;
+}
+
+PAGES.campagnes=async()=>{
+  H(pageH('Campagnes & Saisonnalité')+`
+   <div class="tabs">
+    <div class="tab on" onclick="campTab('carto',this)">🌍 Cartographie cultures</div>
+    <div class="tab" onclick="campTab('calendrier',this)">📅 Calendrier saisonnier</div>
+    <div class="tab" onclick="campTab('antic',this)">⏰ Anticipation</div>
+    <div class="tab" onclick="campTab('prepa',this)">🚜 Préparation de campagne</div>
+   </div><div id="camp-body"></div>`);
+  campRender('carto');
+};
+function campTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');campRender(t);}
+async function campRender(t){const box=document.getElementById('camp-body');
+  if(t==='carto')return campCarto(box);
+  if(t==='calendrier')return campCalendrier(box);
+  if(t==='antic')return campAntic(box);
+  if(t==='prepa')return campPrepa(box);
+}
+
+/* --- Cartographie cultures × zones --- */
+function campCarto(box){
+  const zones=Object.keys(ZONE_COORDS);
+  const markers=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
+    return {lat:co[0],lng:co[1],label:z+' '+cs.map(c=>c.emoji).join(''),kind:'depot'};});
+  const matrice=zones.map(z=>{const cs=culturesDeZone(z);
+    return `<tr><td class="bold">${z}</td><td>${cs.map(c=>`<span class="tag t-gris" style="margin:2px">${c.emoji} ${esc(c.nom)} (${c.part}%)</span>`).join('')||'<span class="txt-m sm">—</span>'}</td></tr>`;}).join('');
+  box.innerHTML=`<div class="row">
+    <div class="card" style="flex:2">${ciMapSVG(markers,null)}
+      <p class="sm txt-m" style="margin-top:6px">Répartition des cultures par grande zone de production (Côte d'Ivoire).</p></div>
+    <div class="card f"><div class="card-h">Cultures par zone</div>
+     <table><tr><th>Zone</th><th>Cultures</th></tr>${matrice}</table></div>
+   </div>
+   <div class="card"><div class="card-h">Part de marché phyto par culture (réf. business plan)</div>
+    <table><tr><th>Culture</th><th>Zones</th><th class="right">Part</th><th>Familles d'intrants</th></tr>
+    ${CULTURES.sort((a,b)=>b.part-a.part).map(c=>{const fams=[...new Set(c.interventions.map(i=>i.famille))];
+      return `<tr><td>${c.emoji} ${esc(c.nom)}</td><td class="sm">${c.zones.join(', ')}</td>
+      <td class="right"><div class="bold">${c.part}%</div><div class="progress" style="width:90px"><i style="width:${c.part*2}%"></i></div></td>
+      <td>${fams.map(f=>`<span class="tag" style="background:${FAM_COL[f]}22;color:${FAM_COL[f]}">${f}</span>`).join(' ')}</td></tr>`;}).join('')}</table></div>`;
+}
+
+/* --- Calendrier saisonnier (Gantt 12 mois) --- */
+function campCalendrier(box){
+  let rows='';
+  CULTURES.forEach(c=>{c.interventions.forEach((iv,k)=>{
+    const cells=MOIS.map((mn,mi)=>{const on=iv.mois.includes(mi+1);
+      const op=0.35+iv.intensite*0.22;
+      return `<td style="padding:0;height:26px;${on?`background:${FAM_COL[iv.famille]};opacity:${op}`:''}" title="${on?esc(c.nom+' — '+iv.stade):''}"></td>`;}).join('');
+    rows+=`<tr><td class="sm">${k===0?c.emoji+' <b>'+esc(c.nom)+'</b>':''}</td>
+      <td class="sm">${esc(iv.type)}</td>${cells}</tr>`;});});
+  box.innerHTML=`<div class="card"><div class="card-h">Calendrier des interventions phytosanitaires</div>
+    <table style="font-size:12px"><tr><th>Culture</th><th>Intervention</th>${MOIS.map(m=>`<th class="center">${m}</th>`).join('')}</tr>${rows}</table>
+    <div class="sm" style="margin-top:10px">
+     ${Object.entries(FAM_COL).filter(([f])=>f!=='Engrais').map(([f,c])=>`<span class="badge-dot" style="background:${c}"></span>${f}&nbsp;&nbsp;`).join('')}
+     <span class="txt-m">— intensité = opacité</span></div></div>
+   <p class="sm txt-m">Lecture : chaque barre indique la fenêtre où le produit doit être disponible en stock et chez les revendeurs. Anticipez l'appro 1 à 2 mois avant.</p>`;
+}
+
+/* --- Anticipation (fenêtres proches + stock) --- */
+async function campAntic(box){
+  const m=new Date().getMonth()+1;const next=m%12+1;const next2=next%12+1;
+  const window=[m,next,next2];
+  const prods=await dbAll('produits');
+  let items=[];
+  CULTURES.forEach(c=>c.interventions.forEach(iv=>{
+    const hit=iv.mois.filter(x=>window.includes(x));if(hit.length)items.push({c,iv,hit});}));
+  // dedupe par culture+type
+  let html='';
+  for(const x of items){const fam=x.iv.famille;
+    const ps=prods.filter(p=>p.famille===fam&&p.homologue);
+    let stockTot=0;for(const p of ps)stockTot+=await stockProduit(p.id,null);
+    const urgence=window.indexOf(Math.min(...x.hit))===0?'t-rouge':(window.indexOf(Math.min(...x.hit))===1?'t-orange':'t-gris');
+    html+=`<tr><td>${x.c.emoji} <b>${esc(x.c.nom)}</b><div class="sm txt-m">${x.c.zones.join(', ')}</div></td>
+     <td>${esc(x.iv.type)}<div class="sm txt-m">${esc(x.iv.stade)}</div></td>
+     <td><span class="tag ${urgence}">${x.hit.map(h=>MOIS[h-1]).join(' ')}</span></td>
+     <td><span class="tag" style="background:${FAM_COL[fam]}22;color:${FAM_COL[fam]}">${fam}</span></td>
+     <td class="sm">${ps.map(p=>esc(p.nom)).join(', ')||'<span class="txt-r">aucun produit homologué</span>'}</td>
+     <td class="right ${stockTot<=0?'txt-r bold':''}">${FCFA0(stockTot)}</td>
+     <td><button class="btn-p btn-sm" onclick="nouvelleCampagne('${x.c.nom}','${x.c.zones[0]}')">Préparer</button></td></tr>`;}
+  box.innerHTML=`<div class="card"><div class="card-h">⏰ Fenêtres d'intervention sur 3 mois — anticipation appro</div>
+    ${items.length?`<table><tr><th>Culture</th><th>Intervention</th><th>Fenêtre</th><th>Famille</th><th>Produits PSF</th><th class="right">Stock dispo</th><th></th></tr>${html}</table>
+     <p class="sm txt-m" style="margin-top:8px">Rouge = ce mois-ci • Orange = mois prochain. Vérifiez le stock et lancez l'appro/les tournées.</p>`
+    :'<div class="empty">Aucune fenêtre dans les 3 prochains mois</div>'}</div>`;
+}
+
+/* --- Préparation de campagne (CRUD + besoins) --- */
+async function campPrepa(box){
+  const camps=(await dbAll('campagnes')).sort((a,b)=>b.id<a.id?-1:1);
+  box.innerHTML=`<div class="page-h" style="margin-bottom:12px"><div class="sp"></div>
+     <button class="btn-p" onclick="nouvelleCampagne()">+ Nouvelle campagne</button></div>
+   <div class="card"><table><tr><th>N°</th><th>Culture</th><th>Zone</th><th>Année</th><th>Surface</th><th>Fenêtre</th><th>Statut</th><th></th></tr>
+   ${camps.map(c=>`<tr><td class="bold">${esc(c.num)}</td><td>${esc(c.culture)}</td><td>${esc(c.zone)}</td>
+     <td>${c.annee}</td><td class="right">${FCFA0(c.surface)} ha</td><td class="sm">${esc(c.debut)} → ${esc(c.fin)}</td>
+     <td><span class="tag ${({planifiee:'t-bleu',active:'t-vert',cloturee:'t-gris'})[c.statut]||'t-gris'}">${c.statut}</span></td>
+     <td><button class="btn-b btn-sm" onclick="voirCampagne('${c.id}')">Ouvrir</button>
+         <button class="btn-r btn-sm" onclick="supprimerCampagne('${c.id}')">×</button></td></tr>`).join('')
+   ||'<tr><td colspan=8 class="empty">Aucune campagne. Créez-en une pour anticiper appro et tournées.</td></tr>'}</table></div>`;
+}
+async function nouvelleCampagne(culture,zone){
+  const c={statut:'planifiee',annee:new Date().getFullYear(),surface:50,culture:culture||CULTURES[0].nom,zone:zone||''};
+  campagneModal(null,c);
+}
+async function campagneModal(id,pre){const c=id?await dbGet('campagnes',id):(pre||{statut:'planifiee',annee:new Date().getFullYear(),surface:50});
+  const cult=CULTURES.find(x=>x.nom===c.culture)||CULTURES[0];
+  const zonesOpts=[...new Set(CULTURES.flatMap(x=>x.zones))];
+  modal(id?'Modifier campagne':'Nouvelle campagne',`
+   <div class="row"><div class="fld f"><label>Culture</label><select id="cp-cult" onchange="cpFenetre()">
+     ${CULTURES.map(x=>`<option ${c.culture===x.nom?'selected':''}>${x.emoji} ${x.nom}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Zone de production</label><select id="cp-zone">
+     ${zonesOpts.map(z=>`<option ${c.zone===z?'selected':''}>${z}</option>`).join('')}</select></div></div>
+   <div class="row"><div class="fld f"><label>Année</label><input id="cp-an" type="number" value="${c.annee}"></div>
+    <div class="fld f"><label>Surface estimée (ha)</label><input id="cp-surf" type="number" value="${c.surface||0}" oninput="cpPreview()"></div></div>
+   <div class="fld"><label>Fenêtre prévisionnelle</label><div id="cp-fen" class="sm txt-m"></div></div>
+   <div class="card-h" style="margin-top:6px">Besoins prévisionnels en intrants</div>
+   <div id="cp-besoins"></div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveCampagne('${id||''}')">Enregistrer la campagne</button>`,true);
+  cpFenetre();
+}
+function cpFenetre(){const cult=CULTURES.find(x=>x.nom.replace(/^[^\w]+\s*/,'')===val('cp-cult').replace(/^[^\w]+\s*/,''))
+   ||CULTURES.find(x=>val('cp-cult').includes(x.nom));
+  if(!cult)return;const mois=[...new Set(cult.interventions.flatMap(i=>i.mois))].sort((a,b)=>a-b);
+  document.getElementById('cp-fen').innerHTML=cult.interventions.map(iv=>
+    `${iv.type} : ${iv.mois.map(m=>MOIS[m-1]).join(', ')} <span style="color:${FAM_COL[iv.famille]}">(${iv.famille})</span>`).join('<br>');
+  cpPreview();
+}
+async function besoinsCampagne(cultNom,surface){const cult=CULTURES.find(x=>x.nom===cultNom);if(!cult)return [];
+  const prods=await dbAll('produits');const acc={};
+  for(const iv of cult.interventions){const ps=prods.filter(p=>p.famille===iv.famille&&p.homologue);
+    if(!ps.length)continue;const p=ps[0];const qte=Math.round(surface*(DOSE[iv.famille]||1)*iv.intensite);
+    acc[p.id]=(acc[p.id]||0)+qte;}
+  return Object.entries(acc).map(([produitId,qte])=>({produitId,qte}));
+}
+async function cpPreview(){const cultNom=val('cp-cult').replace(/^[^\w]+\s*/,'').trim();
+  const cult=CULTURES.find(x=>val('cp-cult').includes(x.nom));const surf=num('cp-surf');
+  if(!cult){return;}
+  const bes=await besoinsCampagne(cult.nom,surf);const prods=await dbAll('produits');
+  let rows='';for(const b of bes){const p=prods.find(x=>x.id===b.produitId);const stk=await stockProduit(b.produitId,null);
+    const manque=Math.max(0,b.qte-stk);
+    rows+=`<tr><td>${esc(p?.nom)}</td><td class="right">${FCFA0(b.qte)} ${p?.unite}</td>
+     <td class="right txt-m">${FCFA0(stk)}</td><td class="right ${manque>0?'txt-r bold':'txt-v'}">${manque>0?FCFA0(manque):'OK'}</td>
+     <td class="right">${FCFA(b.qte*(p?.prixAchat||0))}</td></tr>`;}
+  document.getElementById('cp-besoins').innerHTML=bes.length?`<table><tr><th>Produit</th><th class="right">Besoin</th><th class="right">Stock</th><th class="right">À commander</th><th class="right">Coût achat</th></tr>${rows}</table>`
+    :'<div class="empty">Aucun produit homologué pour cette culture</div>';
+}
+async function saveCampagne(id){const cult=CULTURES.find(x=>val('cp-cult').includes(x.nom));if(!cult){toast('Culture invalide');return;}
+  const surf=num('cp-surf');const an=num('cp-an');
+  const mois=[...new Set(cult.interventions.flatMap(i=>i.mois))].sort((a,b)=>a-b);
+  const debut=an+'-'+String(mois[0]).padStart(2,'0')+'-01';
+  const fin=an+'-'+String(mois[mois.length-1]).padStart(2,'0')+'-28';
+  const besoins=await besoinsCampagne(cult.nom,surf);
+  const c=id?await dbGet('campagnes',id):{id:uid()};
+  if(!c.num)c.num='CMP-'+await nextSeq('campagne');
+  Object.assign(c,{culture:cult.nom,zone:val('cp-zone'),annee:an,surface:surf,debut,fin,besoins,
+    statut:c.statut||'planifiee'});
+  await dbPut('campagnes',c);closeModal();toast('Campagne enregistrée');go('campagnes');campRender('prepa');
+}
+async function supprimerCampagne(id){confirmDel('Supprimer cette campagne ?',
+  `async()=>{await dbDel('campagnes','${id}');toast('Campagne supprimée');go('campagnes')}`);}
+async function voirCampagne(id){const c=await dbGet('campagnes',id);const prods=await dbAll('produits');
+  const cult=CULTURES.find(x=>x.nom===c.culture);
+  let rows='';let coutTot=0,manqueTot=0;
+  for(const b of (c.besoins||[])){const p=prods.find(x=>x.id===b.produitId);const stk=await stockProduit(b.produitId,null);
+    const manque=Math.max(0,b.qte-stk);manqueTot+=manque;coutTot+=b.qte*(p?.prixAchat||0);
+    rows+=`<tr><td>${esc(p?.nom)}</td><td class="right">${FCFA0(b.qte)} ${p?.unite}</td>
+     <td class="right txt-m">${FCFA0(stk)}</td><td class="right ${manque>0?'txt-r bold':'txt-v'}">${manque>0?FCFA0(manque):'OK'}</td></tr>`;}
+  modal('Campagne '+c.num+' — '+(cult?cult.emoji:'')+' '+c.culture,`
+   <p class="sm">Zone <b>${esc(c.zone)}</b> • Année ${c.annee} • Surface ${FCFA0(c.surface)} ha • ${esc(c.debut)} → ${esc(c.fin)}</p>
+   <div class="card-h" style="margin-top:6px">Plan d'approvisionnement</div>
+   <table><tr><th>Produit</th><th class="right">Besoin</th><th class="right">Stock</th><th class="right">À commander</th></tr>${rows||'<tr><td colspan=4 class="empty">—</td></tr>'}</table>
+   <div class="sm" style="margin-top:6px">Coût d'achat estimé du besoin : <b>${FCFA(coutTot)}</b></div>`,
+   `<button class="btn-g" onclick="closeModal()">Fermer</button>
+    <button class="btn-b" onclick="tourneeCampagne('${id}')">🗺️ Planifier tournée</button>
+    ${manqueTot>0?`<button class="btn-p" onclick="approCampagne('${id}')">📥 Générer appro</button>`:''}`,true);
+}
+async function approCampagne(id){const c=await dbGet('campagnes',id);const prods=await dbAll('produits');const byF={};
+  for(const b of (c.besoins||[])){const p=prods.find(x=>x.id===b.produitId);if(!p)continue;
+    const stk=await stockProduit(b.produitId,null);const manque=Math.max(0,b.qte-stk);if(manque<=0)continue;
+    const f=p.fourn||'_';(byF[f]=byF[f]||[]).push({produitId:p.id,qte:manque,pu:p.prixAchat});}
+  let n=0;for(const [fournId,lignes] of Object.entries(byF)){if(!lignes.length)continue;
+    const num=await nextSeq('cmdAchat');const totalHT=lignes.reduce((a,l)=>a+l.qte*l.pu,0);
+    await dbPut('cmdAchat',{id:uid(),num:'CA-'+num,fournId:fournId==='_'?'':fournId,date:today(),lignes,totalHT,statut:'brouillon',auto:true,campagne:c.num});n++;}
+  closeModal();toast(n+" commande(s) d'achat générée(s) pour la campagne");go('appro');
+}
+async function tourneeCampagne(id){const c=await dbGet('campagnes',id);
+  const cls=(await dbAll('clients')).filter(cl=>cl.zone===c.zone||c.zone.includes(cl.zone)||cl.zone.includes(c.zone));
+  if(!cls.length){toast('Aucun client dans la zone '+c.zone);return;}
+  closeModal();afficherRoute(cls.map(x=>x.id),c.zone,'Campagne '+c.culture+' — '+c.zone);
+}
+async function afficherRoute(ids,zone,titre){
+  const cls=await dbAll('clients');
+  const sc=CITIES[(zone||'').toLowerCase()]||CITIES['abidjan'];
+  const start={lat:sc[0],lng:sc[1],label:'Départ ('+zone+')'};
+  const pts=ids.map(i=>{const cl=cls.find(x=>x.id===i);if(!cl)return null;const co=clientCoords(cl);return{lat:co.lat,lng:co.lng,label:cl.nom};}).filter(Boolean);
+  let route=[start],rem=pts.slice(),cur=start;
+  while(rem.length){let bi=0,bd=1e9;rem.forEach((p,i)=>{const d=haversine(cur,p);if(d<bd){bd=d;bi=i;}});cur=rem[bi];route.push(cur);rem.splice(bi,1);}
+  let dist=0;for(let i=1;i<route.length;i++)dist+=haversine(route[i-1],route[i]);ITIN={route,dist,zone};
+  const listHTML=route.map((r,i)=>`<tr><td class="center bold">${i}</td><td>${esc(r.label)}</td>
+    <td class="right sm txt-m">${i>0?Math.round(haversine(route[i-1],route[i]))+' km':'départ'}</td></tr>`).join('');
+  modal(titre||('Tournée — '+zone),
+   `<iframe src="${gmapDirEmbed(route)}" style="width:100%;height:320px;border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <table style="margin-top:10px"><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
+    <div class="bold" style="margin-top:8px">Distance ≈ ${Math.round(dist)} km • ${route.length-1} visites</div>`,
+   `<button class="btn-g" onclick="closeModal()">Fermer</button>
+    <a href="${gmapDirLink(route)}" target="_blank" class="btn-p" style="text-decoration:none">🧭 Google Maps</a>
+    <button class="btn-b" onclick="imprimerItineraire()">🖨️ Imprimer</button>`,true);
+}
 
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
