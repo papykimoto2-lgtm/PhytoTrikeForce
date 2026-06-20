@@ -1063,7 +1063,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <button class="ham-btn" id="hamBtn" onclick="toggleSidebar()" aria-label="Menu">
       <span></span><span></span><span></span>
     </button>
-    <div class="brand"><span class="v">PSF</span> <span class="b">ERP</span></div>
+    <div class="brand"><img id="brandLogo" style="height:30px;margin-right:8px;display:none;border-radius:4px;vertical-align:middle"><span class="v">PSF</span> <span class="b">ERP</span></div>
     <span id="netStatus" title="État de la connexion" style="margin-left:10px;font-size:11px;padding:3px 8px;border-radius:10px;font-weight:700"></span>
     <span style="font-size:10px;color:#94a3b8;margin-left:10px;font-weight:600;letter-spacing:.4px;white-space:nowrap" title="Conçu par Sanix Africa Division Technologies — +225 07 79 10 81 07 / 01 40 01 77 51">
       by <span style="color:#1d3f6e;font-weight:700;">Sanix Africa</span>
@@ -5337,6 +5337,12 @@ PAGES.parametres=async()=>{
      <table>${deps.map(d=>`<tr><td class="bold">${esc(d.nom)}</td><td class="sm txt-m">${esc(d.zone)}</td>
       <td>${d.principal?'<span class="tag t-vert">Principal</span>':''}</td></tr>`).join('')}</table></div>
    </div>
+   <div class="card"><div class="card-h">🏢 Logo de l'entreprise</div>
+    <div class="row" style="align-items:center;gap:14px">
+     <img id="pa-logo-preview" src="${p.logo||''}" style="max-height:70px;border:1px solid var(--bord);border-radius:8px;padding:4px;background:#fff;${p.logo?'':'display:none'}">
+     <div class="fld f"><label>Image (PNG/JPG, max 500 Ko)</label><input type="file" accept="image/*" onchange="chargerLogo(this)"></div>
+     <button class="btn-g btn-sm" onclick="supprimerLogo()">Retirer</button></div>
+    <p class="sm txt-m">Affiché dans la barre du haut et en tête des documents imprimés (factures, relevés, bulletins).</p></div>
    <div class="card"><div class="card-h">💾 Données</div>
     <button class="btn-b" onclick="exportData()">⬇️ Sauvegarde JSON</button>
     <button class="btn-p" onclick="genererDemo()" style="margin-left:8px">🎲 Générer données démo</button>
@@ -5357,8 +5363,9 @@ async function saveParam(){const p=await dbGet('parametres','main');
     cnpsNum:val('pa-cnpsnum'),cnpsPlafond:num('pa-cnpsplaf')||1647315,
     tauxTAP:num('pa-tap'),tauxTFPC:num('pa-tfpc'),
     tauxCnpsSal:num('pa-cnpssal'),tauxAT:num('pa-at'),tauxPF:num('pa-pf'),plafondSoc:num('pa-plafsoc')||75000,
-    tauxContribEmp:num('pa-contrib'),cmu:num('pa-cmu'),primeTransportExo:num('pa-transport')});
-  await dbPut('parametres',p);toast('Paramètres enregistrés');}
+    tauxContribEmp:num('pa-contrib'),cmu:num('pa-cmu'),primeTransportExo:num('pa-transport'),
+    logo:(LOGO_TMP!==undefined?LOGO_TMP:p.logo)});
+  await dbPut('parametres',p);LOGO_TMP=undefined;await majLogo();toast('Paramètres enregistrés');}
 async function exportData(){const dump={};for(const s of STORES)dump[s]=await dbAll(s);
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -5855,6 +5862,13 @@ async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('paramet
 }
 
 /* ====== APERÇU AVANT IMPRESSION ====== */
+let LOGO='';let LOGO_TMP;
+async function majLogo(){const p=await dbGet('parametres','main');LOGO=p&&p.logo?p.logo:'';
+  const img=document.getElementById('brandLogo');if(img){if(LOGO){img.src=LOGO;img.style.display='inline-block';}else img.style.display='none';}}
+function chargerLogo(input){const f=input.files[0];if(!f)return;
+  if(f.size>500000){toast('Logo trop lourd (max 500 Ko)');return;}
+  const r=new FileReader();r.onload=()=>{LOGO_TMP=r.result;const pv=document.getElementById('pa-logo-preview');if(pv){pv.src=r.result;pv.style.display='block';}};r.readAsDataURL(f);}
+function supprimerLogo(){LOGO_TMP='';const pv=document.getElementById('pa-logo-preview');if(pv){pv.src='';pv.style.display='none';}toast('Logo retiré — enregistrez pour valider');}
 function apercu(titre,corps,styles){
   const w=window.open('','_blank','width=920,height=760');
   w.document.write(`<html><head><title>${esc(titre)}</title><meta charset="utf-8"><style>
@@ -5870,7 +5884,7 @@ function apercu(titre,corps,styles){
    <div id="bar"><b>Aperçu avant impression — ${esc(titre)}</b>
      <button class="pr" onclick="window.print()">🖨️ Imprimer</button>
      <button class="cl" onclick="window.close()">Fermer</button></div>
-   <div id="sheet">${corps}</div></body></html>`);
+   <div id="sheet">${LOGO?'<img src="'+LOGO+'" style="max-height:60px;margin-bottom:12px">':''}${corps}</div></body></html>`);
   w.document.close();
 }
 
@@ -7843,7 +7857,7 @@ async function migrerComptesTiers(){
     await ensureCompte(f.compte,'Fournisseur — '+f.nom,'passif','401');}}
 }
 (async()=>{
-  try{DB=await openDB();await seed();await majParamsFiscaux();await migrerComptesTiers();}catch(e){console.error(e);alert('Erreur init: '+e);}
+  try{DB=await openDB();await seed();await majParamsFiscaux();await migrerComptesTiers();await majLogo();}catch(e){console.error(e);alert('Erreur init: '+e);}
 })();
 document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 
