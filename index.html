@@ -3020,7 +3020,7 @@ PAGES.produits=async()=>{
       <td>${p.homologue?'<span class="tag t-vert">Homologué</span>':'<span class="tag t-rouge">Non homol.</span>'}</td>
       <td><button class="btn-g btn-sm" onclick="editProduit('${p.id}')">Éditer</button></td>
     </tr>`;}
-  H(pageH('Produits & Équipements','<button class="btn-p" onclick="editProduit()">+ Produit</button>')+`
+  H(pageH('Produits & Équipements','<button class="btn-p" onclick="editProduit()">+ Produit</button>')+(await produitsDash())+`
   <div class="card"><table>
     <tr><th>Réf</th><th>Désignation</th><th>Famille</th><th class="right">P. Achat</th>
     <th class="right">P. Gros</th><th class="right">Stock</th><th>Homologation</th><th></th></tr>
@@ -3206,7 +3206,7 @@ async function saveInventaire(){const prods=await dbAll('produits');let totEcart
 PAGES.appro=async()=>{
   const cmds=(await dbAll('cmdAchat')).sort((a,b)=>b.id<a.id?-1:1);
   const fs=await dbAll('fournisseurs');
-  H(pageH('Appro / Commandes Achat','<button class="btn-p" onclick="cmdAchatModal()">+ Commande</button>')+`
+  H(pageH('Appro / Commandes Achat','<button class="btn-p" onclick="cmdAchatModal()">+ Commande</button>')+(await approDash())+`
    <div class="card"><table>
     <tr><th>N°</th><th>Date</th><th>Fournisseur</th><th class="right">Montant HT</th><th>Statut</th><th></th></tr>
     ${cmds.map(c=>{const f=fs.find(x=>x.id===c.fournId);
@@ -3302,7 +3302,7 @@ PAGES.clients=async()=>{
       <td><span class="tag t-gris">${c.tarif}</span></td>
       <td class="right ${solde>0?'txt-r bold':''}">${FCFA(solde)}</td>
       <td><button class="btn-g btn-sm" onclick="editClient('${c.id}')">Éditer</button></td></tr>`;}
-  H(pageH('Clients','<button class="btn-p" onclick="editClient()">+ Client</button>')+`
+  H(pageH('Clients','<button class="btn-p" onclick="editClient()">+ Client</button>')+(await clientsDash())+`
    <div class="card"><table>
     <tr><th>Nom</th><th>Type</th><th>Localité</th><th>Tél</th><th>Tarif</th><th class="right">Solde dû</th><th></th></tr>
     ${rows}</table></div>`);
@@ -3341,14 +3341,15 @@ async function saveClient(id){const c=id?await dbGet('clients',id):{id:uid(),sol
 /* ---- COMMANDES CLIENT ---- */
 PAGES.commandes=async()=>{
   const cmds=(await dbAll('cmdClient')).sort((a,b)=>b.id<a.id?-1:1);const cls=await dbAll('clients');
-  H(pageH('Commandes Client','<button class="btn-p" onclick="cmdClientModal()">+ Commande</button>')+`
+  H(pageH('Commandes Client','<button class="btn-p" onclick="cmdClientModal()">+ Commande</button>')+(await commandesDash())+`
    <div class="card"><table>
     <tr><th>N°</th><th>Date</th><th>Client</th><th class="right">Total HT</th><th>Statut</th><th></th></tr>
     ${cmds.map(c=>{const cl=cls.find(x=>x.id===c.clientId);
      return `<tr><td class="bold">${esc(c.num)}</td><td>${fmtD(c.date)}</td><td>${esc(cl?.nom||'?')}</td>
      <td class="right">${FCFA(c.totalHT)}</td>
      <td><span class="tag ${({devis:'t-gris',confirmee:'t-bleu',livree:'t-vert',facturee:'t-violet'})[c.statut]}">${c.statut}</span></td>
-     <td>${c.statut==='confirmee'?`<button class="btn-b btn-sm" onclick="livrerCmd('${c.id}')">Livrer</button>`:''}
+     <td>${c.statut==='devis'?`<button class="btn-p btn-sm" onclick="confirmerDevis('${c.id}')">✓ Commande ferme</button>`:''}
+        ${c.statut==='confirmee'?`<button class="btn-b btn-sm" onclick="livrerCmd('${c.id}')">Livrer</button>`:''}
         ${c.statut==='livree'?`<button class="btn-p btn-sm" onclick="facturerCmd('${c.id}')">Facturer</button>`:''}
         ${(c.statut==='devis'||c.statut==='confirmee')?`<button class="btn-g btn-sm" onclick="cmdClientModal('${c.id}')">Éditer</button>`:''}
         <button class="btn-g btn-sm" onclick="voirCmdClient('${c.id}')">Voir</button>
@@ -3356,6 +3357,22 @@ PAGES.commandes=async()=>{
     ||'<tr><td colspan=6 class="empty">Aucune commande</td></tr>'}
    </table></div>`);
 };
+async function confirmerDevis(id){const c=await dbGet('cmdClient',id);
+  const cl=await dbGet('clients',c.clientId);
+  let alerte='';
+  for(const l of c.lignes){const stk=await stockProduit(l.produitId,STATE.depot);
+    if(stk<l.qte){const p=await dbGet('produits',l.produitId);alerte+=' • '+(p?p.nom:'')+': stock '+stk+' < '+l.qte;}}
+  modal('Transformer en commande ferme',`
+   <p>Confirmer le devis <b>${esc(c.num)}</b> (${esc(cl?cl.nom:'')}) — total ${FCFA(c.totalHT)} HT ?</p>
+   <p class="sm txt-m">La commande passera au statut <b>confirmée</b> et pourra être livrée puis facturée.</p>
+   ${alerte?`<p class="sm txt-r">⚠️ Stock insuffisant :${esc(alerte)} — vous pourrez réapprovisionner avant la livraison.</p>`:''}`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="doConfirmerDevis('${id}')">✓ Valider la commande ferme</button>`);
+}
+async function doConfirmerDevis(id){const c=await dbGet('cmdClient',id);
+  c.statut='confirmee';c.dateConfirm=today();await dbPut('cmdClient',c);
+  closeModal();toast('Devis transformé en commande ferme');go('commandes');
+}
 async function cmdClientModal(id){const cls=await dbAll('clients');
   let c=id?await dbGet('cmdClient',id):null;LIGNES=c?c.lignes.map(l=>Object.assign({},l)):[];
   modal(id?'Modifier '+c.num:'Nouvelle commande client',`
@@ -3469,7 +3486,7 @@ async function imprimerBL(id){const l=await dbGet('livraisons',id);const cl=awai
 /* ---- FACTURATION SYSCOHADA ---- */
 PAGES.factures=async()=>{
   const facs=(await dbAll('factures')).sort((a,b)=>b.id<a.id?-1:1);const cls=await dbAll('clients');
-  H(pageH('Facturation','<button class="btn-p" onclick="factureLibreModal()">+ Facture directe</button>')+`
+  H(pageH('Facturation','<button class="btn-p" onclick="factureLibreModal()">+ Facture directe</button>')+(await facturationDash())+`
    <div class="card"><table>
     <tr><th>N°</th><th>Type</th><th>Date</th><th>Client</th><th class="right">HT</th><th class="right">TVA</th><th class="right">TTC</th><th class="right">Réglé</th><th>Statut</th><th></th></tr>
     ${facs.map(f=>{const cl=cls.find(x=>x.id===f.clientId);const reste=f.totalTTC-(f.regle||0);const tFNE=f.type==='fne';
@@ -3726,7 +3743,7 @@ PAGES.tresorerie=async()=>{
   const sld=b=>b?(b.debit-b.credit):0;
   const regs=(await dbAll('reglements')).sort((a,b)=>b.id<a.id?-1:1).slice(0,30);
   const facs=await dbAll('factures');const cls=await dbAll('clients');
-  H(pageH('Trésorerie')+`
+  H(pageH('Trésorerie')+(await tresorerieDash())+`
    <div class="grid kpis">
     <div class="kpi vert"><div class="lab">💵 Caisse (571)</div><div class="val">${FCFA(sld(caisse))}</div></div>
     <div class="kpi bleu"><div class="lab">📱 Mobile Money (531)</div><div class="val">${FCFA(sld(momo))}</div></div>
@@ -6246,6 +6263,84 @@ async function fecExport(){const ecs=(await dbAll('ecritures')).sort((a,b)=>a.da
     (e.date||'').replace(/-/g,''),l.compte,(e.libelle||'').replace(/[|\n]/g,' '),l.debit||0,l.credit||0].join('|'));}));
   const blob=new Blob([lines.join('\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='FEC_PSF_'+today()+'.txt';a.click();toast('FEC exporté ('+(lines.length-1)+' lignes)');}
+
+
+/* ====== VISUALISATIONS (SVG offline) ====== */
+function donutSVG(data,size){size=size||130;const r=size/2,ir=r*0.62;
+  const tot=data.reduce((a,d)=>a+d.value,0)||1;let a0=-Math.PI/2,paths='';
+  data.forEach(d=>{if(d.value<=0)return;const a1=a0+d.value/tot*2*Math.PI;
+    const x0=r+r*Math.cos(a0),y0=r+r*Math.sin(a0),x1=r+r*Math.cos(a1),y1=r+r*Math.sin(a1);
+    const xi0=r+ir*Math.cos(a1),yi0=r+ir*Math.sin(a1),xi1=r+ir*Math.cos(a0),yi1=r+ir*Math.sin(a0);
+    const lg=(a1-a0)>Math.PI?1:0;
+    paths+=`<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 ${lg} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} L${xi0.toFixed(1)} ${yi0.toFixed(1)} A${ir} ${ir} 0 ${lg} 0 ${xi1.toFixed(1)} ${yi1.toFixed(1)} Z" fill="${d.color}"><title>${esc(d.label)}: ${FCFA0(d.value)}</title></path>`;
+    a0=a1;});
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${paths}<circle cx="${r}" cy="${r}" r="${(ir*0.9).toFixed(1)}" fill="#fff"/><text x="${r}" y="${r-2}" text-anchor="middle" font-size="9" fill="#888">Total</text><text x="${r}" y="${r+12}" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">${FCFA0(tot)}</text></svg>`;
+}
+function legendHTML(data){return `<div class="sm" style="display:flex;flex-direction:column;gap:3px">${data.filter(d=>d.value>0).map(d=>`<span><span class="badge-dot" style="background:${d.color}"></span>${esc(d.label)} <b>${FCFA0(d.value)}</b></span>`).join('')}</div>`;}
+function barChartSVG(data,opts){opts=opts||{};const w=opts.w||340,h=opts.h||150,pad=26;
+  const max=Math.max(1,...data.map(d=>d.value));const step=(w-pad)/Math.max(1,data.length);const bw=step*0.6;
+  let bars='';data.forEach((d,i)=>{const x=pad+i*step+(step-bw)/2;const bh=(h-pad-14)*d.value/max;const y=h-pad-bh;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,bh).toFixed(1)}" rx="3" fill="${d.color||'#1f7a3d'}"><title>${esc(d.label)}: ${FCFA0(d.value)}</title></rect>
+      <text x="${(x+bw/2).toFixed(1)}" y="${h-pad+12}" text-anchor="middle" font-size="9" fill="#666">${esc(d.label)}</text>`;});
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" style="max-width:${w}px"><line x1="${pad}" y1="${h-pad}" x2="${w}" y2="${h-pad}" stroke="#e2e8f0"/>${bars}</svg>`;
+}
+function moduleDash(kpis,visuel){
+  const k=kpis.map(x=>`<div class="kpi ${x.c||'bleu'}"><div class="lab">${x.lab}</div><div class="val">${x.val}</div>${x.sub?`<div class="sub">${x.sub}</div>`:''}</div>`).join('');
+  return `<div class="grid kpis" style="margin-bottom:14px">${k}</div>${visuel?`<div class="card" style="margin-bottom:16px"><div class="row" style="align-items:center">${visuel}</div></div>`:''}`;
+}
+
+async function approDash(){const cmds=await dbAll('cmdAchat');
+  const par={brouillon:0,envoyee:0,recue:0};cmds.forEach(c=>par[c.statut]=(par[c.statut]||0)+1);
+  const montant=cmds.filter(c=>c.statut==='recue').reduce((a,c)=>a+(c.totalHT||0),0);
+  const enCours=cmds.filter(c=>c.statut!=='recue').reduce((a,c)=>a+(c.totalHT||0),0);
+  const d=[{label:'Brouillon',value:par.brouillon,color:'#94a3b8'},{label:'Envoyée',value:par.envoyee,color:'#2c66b0'},{label:'Reçue',value:par.recue,color:'#1f7a3d'}];
+  return moduleDash(
+   [{lab:'Commandes',val:cmds.length,c:'bleu'},{lab:'Achats reçus',val:FCFA(montant),c:'vert'},{lab:'En cours',val:FCFA(enCours),c:'orange'}],
+   `<div>${donutSVG(d)}</div><div class="f">${legendHTML(d)}</div>`);
+}
+async function produitsDash(){const prods=await dbAll('produits');
+  const fam={};for(const p of prods){fam[p.famille]=(fam[p.famille]||0)+1;}
+  const cols={Herbicide:'#1f7a3d',Insecticide:'#e67e22',Fongicide:'#7c3aed',Engrais:'#2c66b0',Équipement:'#0891b2'};
+  const d=Object.entries(fam).map(([k,v])=>({label:k,value:v,color:cols[k]||'#64748b'}));
+  let valStock=0;for(const p of prods){const q=await stockProduit(p.id,null);valStock+=q*p.prixAchat;}
+  const nonHom=prods.filter(p=>!p.homologue).length;
+  return moduleDash(
+   [{lab:'Références',val:prods.length,c:'bleu'},{lab:'Valeur stock',val:FCFA(valStock),c:'vert'},{lab:'Non homologués',val:nonHom,c:nonHom?'rouge':'vert'}],
+   `<div>${donutSVG(d)}</div><div class="f">${legendHTML(d)}</div>`);
+}
+async function clientsDash(){const cls=await dbAll('clients');
+  const cli=cls.filter(c=>c.statut!=='prospect').length,pro=cls.filter(c=>c.statut==='prospect').length;
+  const zones={};cls.forEach(c=>{const z=c.zone||'Autre';zones[z]=(zones[z]||0)+1;});
+  const bars=Object.entries(zones).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([z,v])=>({label:z,value:v,color:'#1f7a3d'}));
+  return moduleDash(
+   [{lab:'Clients',val:cli,c:'vert'},{lab:'Prospects',val:pro,c:'orange'},{lab:'Total',val:cls.length,c:'bleu'}],
+   `<div class="f"><div class="card-h" style="margin-top:0">Répartition par zone</div>${barChartSVG(bars)}</div>`);
+}
+async function commandesDash(){const cmds=await dbAll('cmdClient');
+  const par={devis:0,confirmee:0,livree:0,facturee:0};cmds.forEach(c=>par[c.statut]=(par[c.statut]||0)+1);
+  const pipeline=cmds.filter(c=>c.statut==='devis'||c.statut==='confirmee').reduce((a,c)=>a+(c.totalHT||0),0);
+  const d=[{label:'Devis',value:par.devis,color:'#94a3b8'},{label:'Confirmée',value:par.confirmee,color:'#2c66b0'},{label:'Livrée',value:par.livree,color:'#1f7a3d'},{label:'Facturée',value:par.facturee,color:'#7c3aed'}];
+  return moduleDash(
+   [{lab:'Commandes',val:cmds.length,c:'bleu'},{lab:'Devis en cours',val:par.devis,c:'orange'},{lab:'Pipeline (HT)',val:FCFA(pipeline),c:'vert'}],
+   `<div>${donutSVG(d)}</div><div class="f">${legendHTML(d)}</div>`);
+}
+async function facturationDash(){const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const ca=facs.reduce((a,f)=>a+f.totalHT,0),enc=facs.reduce((a,f)=>a+(f.regle||0),0);
+  const impaye=facs.reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);
+  const fne=facs.filter(f=>f.type==='fne').length,simple=facs.length-fne;
+  const d=[{label:'Encaissé',value:enc,color:'#1f7a3d'},{label:'Reste dû',value:Math.max(0,impaye),color:'#e67e22'}];
+  return moduleDash(
+   [{lab:'CA facturé HT',val:FCFA(ca),c:'vert'},{lab:'Encaissé',val:FCFA(enc),c:'bleu'},{lab:'Impayés TTC',val:FCFA(impaye),c:'orange'},{lab:'FNE / Simple',val:fne+' / '+simple,c:'violet'}],
+   `<div>${donutSVG(d)}</div><div class="f">${legendHTML(d)}</div>`);
+}
+async function tresorerieDash(){const bal=await balance();
+  const s=n=>{const c=bal.find(b=>b.num===n);return c?c.debit-c.credit:0;};
+  const caisse=s('571'),momo=s('531'),banque=s('521');
+  const bars=[{label:'Caisse',value:Math.max(0,caisse),color:'#1f7a3d'},{label:'Mobile Money',value:Math.max(0,momo),color:'#e67e22'},{label:'Banque',value:Math.max(0,banque),color:'#2c66b0'}];
+  return moduleDash(
+   [{lab:'Caisse (571)',val:FCFA(caisse),c:'vert'},{lab:'Mobile Money (531)',val:FCFA(momo),c:'orange'},{lab:'Banque (521)',val:FCFA(banque),c:'bleu'},{lab:'Trésorerie totale',val:FCFA(caisse+momo+banque),c:'violet'}],
+   `<div class="f"><div class="card-h" style="margin-top:0">Soldes de trésorerie</div>${barChartSVG(bars,{w:360})}</div>`);
+}
 
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
