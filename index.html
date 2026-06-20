@@ -191,6 +191,31 @@ tr:hover td{background:#f8fafc}
   .print-sig-footer .ps-right{text-align:right;font-size:7.5pt;color:#64748b;}
 }
 .print-sig-footer{display:none;}
+/* ===== THÈME AGRO-TECH — design system (override) ===== */
+:root{--cuivre:#c2703d;--cuivre2:#a85a2c;--nuit:#14241c;--nuit2:#1b3026;}
+body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
+.topbar{border-bottom:1px solid var(--bord);box-shadow:0 2px 0 0 var(--cuivre),0 1px 4px rgba(0,0,0,.04)}
+/* Sidebar ardoise */
+.sidebar{width:222px;background:var(--nuit);border-right:none;padding-top:6px}
+.main{max-width:calc(100vw - 222px)}
+.nav-grp{color:#5e7d6c;letter-spacing:.6px;font-weight:700;padding:16px 18px 4px}
+.nav-item{color:#b8c9bf;border-left:3px solid transparent;border-radius:0 8px 8px 0;margin-right:8px;gap:10px}
+.nav-item:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav-item.on{background:linear-gradient(90deg,rgba(194,112,61,.24),rgba(194,112,61,.02));color:#fff;border-left-color:var(--cuivre);font-weight:600}
+.nav-item.on .ic{filter:drop-shadow(0 0 4px rgba(194,112,61,.7))}
+.nav-lab{flex:1}
+.nav-badge{min-width:18px;height:18px;border-radius:9px;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px;color:#fff;line-height:1}
+.nav-badge:not(:empty){display:inline-flex}
+.b-rouge{background:#d63031}.b-orange{background:#e67e22}.b-bleu{background:#2c66b0}
+/* Cartes & KPI adoucis */
+.card{border-radius:12px;border-color:#eef1f0}
+.kpi{border-radius:12px;border-color:#eef1f0}
+.kpi .val{letter-spacing:-.5px}
+.kpi.orange{border-top-color:var(--cuivre)}
+/* Onglets accent cuivre */
+.tabs .tab.on{color:var(--cuivre);border-bottom-color:var(--cuivre)}
+.page-h h1{letter-spacing:-.3px}
+@media(max-width:860px){.sidebar{left:-222px;width:222px}.sidebar.open{left:0}.main{max-width:100vw}}
 </style>
 </head>
 <body>
@@ -2900,11 +2925,21 @@ const NAV=[
 function buildNav(){
   let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
     for(const [k,ic,lab] of items)h+=`<div class="nav-item" data-k="${k}" onclick="go('${k}')">
-      <span class="ic">${ic}</span>${lab}</div>`;}
-  document.getElementById('sidebar').innerHTML=h;}
+      <span class="ic">${ic}</span><span class="nav-lab">${lab}</span><span class="nav-badge" id="badge-${k}"></span></div>`;}
+  document.getElementById('sidebar').innerHTML=h;refreshNavBadges();}
+async function refreshNavBadges(){try{
+  const set=(k,n,cls)=>{const e=document.getElementById('badge-'+k);if(!e)return;
+    if(n>0){e.textContent=n>99?'99+':n;e.className='nav-badge '+(cls||'b-rouge');}else{e.textContent='';e.className='nav-badge';}};
+  const facs=await dbAll('factures');
+  set('factures',facs.filter(f=>f.statut!=='annulee'&&(f.totalTTC-(f.regle||0))>1).length,'b-rouge');
+  const cc=await dbAll('cmdClient');set('commandes',cc.filter(c=>c.statut==='devis').length,'b-bleu');
+  const ca=await dbAll('cmdAchat');set('appro',ca.filter(c=>c.statut==='envoyee'||c.statut==='partiel').length,'b-orange');
+  const prods=await dbAll('produits');let bas=0;for(const p of prods){const q=await stockProduit(p.id,null);if(q<=(p.seuil||0))bas++;}
+  set('stock',bas,'b-orange');
+}catch(e){}}
 function go(page){STATE.page=page;
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('on',n.dataset.k===page));
-  (PAGES[page]||PAGES.dashboard)();}
+  (PAGES[page]||PAGES.dashboard)();refreshNavBadges();}
 
 /* ====== MOTEUR COMPTABLE ====== */
 async function ecrire(journal,date,libelle,lignes,piece){
