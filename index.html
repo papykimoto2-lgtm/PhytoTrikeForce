@@ -5862,9 +5862,21 @@ async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('paramet
 }
 
 /* ====== APERÇU AVANT IMPRESSION ====== */
-let LOGO='';let LOGO_TMP;
-async function majLogo(){const p=await dbGet('parametres','main');LOGO=p&&p.logo?p.logo:'';
+let LOGO='';let LOGO_TMP;let SOC=null;
+async function majLogo(){const p=await dbGet('parametres','main');SOC=p||null;LOGO=p&&p.logo?p.logo:'';
   const img=document.getElementById('brandLogo');if(img){if(LOGO){img.src=LOGO;img.style.display='inline-block';}else img.style.display='none';}}
+function enteteImpr(){const p=SOC;
+  if(!p)return LOGO?('<img src="'+LOGO+'" style="max-height:60px;margin-bottom:12px">'):'';
+  return `<table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr>
+    ${LOGO?`<td style="vertical-align:middle;width:84px"><img src="${LOGO}" style="max-height:66px"></td>`:''}
+    <td style="vertical-align:middle">
+      <div style="font-size:17px;font-weight:bold;color:#1d3f6e">${esc(p.nom||'')}${p.sigle?' — '+esc(p.sigle):''}</div>
+      <div style="font-size:11px;color:#444;line-height:1.5">${esc(p.forme||'')}${p.rccm?' • RCCM '+esc(p.rccm):''}${p.ncc?' • NCC '+esc(p.ncc):''}<br>
+      ${esc(p.siege||'')}${p.tel?' • Tél. '+esc(p.tel):''}${p.mail?' • '+esc(p.mail):''}</div>
+    </td>
+    <td style="vertical-align:middle;text-align:right;font-size:10px;color:#666">${p.regime?esc(p.regime):''}${p.centre?'<br>'+esc(p.centre):''}</td>
+  </tr></table><div style="border-bottom:2px solid #1d3f6e;margin-bottom:14px"></div>`;
+}
 function chargerLogo(input){const f=input.files[0];if(!f)return;
   if(f.size>500000){toast('Logo trop lourd (max 500 Ko)');return;}
   const r=new FileReader();r.onload=()=>{LOGO_TMP=r.result;const pv=document.getElementById('pa-logo-preview');if(pv){pv.src=r.result;pv.style.display='block';}};r.readAsDataURL(f);}
@@ -5884,7 +5896,7 @@ function apercu(titre,corps,styles){
    <div id="bar"><b>Aperçu avant impression — ${esc(titre)}</b>
      <button class="pr" onclick="window.print()">🖨️ Imprimer</button>
      <button class="cl" onclick="window.close()">Fermer</button></div>
-   <div id="sheet">${LOGO?'<img src="'+LOGO+'" style="max-height:60px;margin-bottom:12px">':''}${corps}</div></body></html>`);
+   <div id="sheet">${enteteImpr()}${corps}</div></body></html>`);
   w.document.close();
 }
 
