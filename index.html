@@ -2592,9 +2592,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com','notifications','pointages','rapprochements'];
+'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',7);
+  const r=indexedDB.open('PSF_ERP',8);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -3216,6 +3216,7 @@ PAGES.appro=async()=>{
       <td><span class="tag ${({brouillon:'t-gris',envoyee:'t-bleu',recue:'t-vert'})[c.statut]}">${c.statut}</span></td>
       <td>${c.statut!=='recue'?`<button class="btn-b btn-sm" onclick="recevoirCmd('${c.id}')">Réceptionner</button>`:''}
           ${c.statut!=='recue'?`<button class="btn-g btn-sm" onclick="cmdAchatModal('${c.id}')">Éditer</button>`:''}
+          ${c.statut==='recue'?`<button class="btn-p btn-sm" onclick="reglFournModal('${c.id}')">Régler</button>`:''}
           <button class="btn-g btn-sm" onclick="voirCmdAchat('${c.id}')">Voir</button>
           <button class="btn-r btn-sm" onclick="supprimerCmdAchat('${c.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=6 class="empty">Aucune commande</td></tr>'}
@@ -4843,15 +4844,114 @@ async function genererDemo(){
 
 /* ====== COMPTES TIERS & FACILITÉS DE PAIEMENT ====== */
 let ECH=[];
+/* ====== COMPTABILITÉ DES TIERS (clients 411 + fournisseurs 401) ====== */
+function ttcAchat(c){return (c.totalHT||0)+Math.round((c.totalHT||0)*0.02);}
+async function reglFournModal(cmdId){const c=await dbGet('cmdAchat',cmdId);const f=await dbGet('fournisseurs',c.fournId);
+  const ttc=ttcAchat(c);const paye=(await dbAll('reglFourn')).filter(r=>r.cmdId===cmdId).reduce((a,r)=>a+r.montant,0);
+  const reste=ttc-paye;
+  modal('Règlement fournisseur — '+c.num,`
+   <p class="sm">Fournisseur : <b>${esc(f?.nom||'')}</b><br>Montant TTC ${FCFA(ttc)} • Déjà payé ${FCFA(paye)} • Reste <b>${FCFA(reste)}</b></p>
+   <div class="row"><div class="fld f"><label>Montant</label><input id="rf-mt" type="number" value="${reste>0?reste:0}"></div>
+    <div class="fld f"><label>Moyen</label><select id="rf-mode">
+      <option value="571">Espèces (caisse)</option><option value="531">Mobile Money</option><option value="521">Banque</option></select></div>
+    <div class="fld f"><label>Date</label><input id="rf-date" type="date" value="${today()}"></div></div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveReglFourn('${cmdId}')">Enregistrer le paiement</button>`);
+}
+async function saveReglFourn(cmdId){const c=await dbGet('cmdAchat',cmdId);const mt=num('rf-mt');const mode=val('rf-mode');
+  if(mt<=0)return;const date=val('rf-date')||today();
+  const ec=await ecrire('TRE',date,'Règlt fourn. '+c.num,[
+    {compte:'401',debit:mt,credit:0},{compte:mode,debit:0,credit:mt}],c.num);
+  await dbPut('reglFourn',{id:uid(),fournId:c.fournId,cmdId,montant:mt,mode,date,ecritureId:ec.id});
+  closeModal();toast('Règlement fournisseur enregistré');go('appro');
+}
+async function annulerReglFourn(id){const r=await dbGet('reglFourn',id);
+  confirmDel('Annuler ce règlement fournisseur de '+FCFA(r.montant)+' ?',
+   `async()=>{const r=await dbGet('reglFourn','${id}');if(r.ecritureId)await delEcriture(r.ecritureId);
+     await dbDel('reglFourn','${id}');toast('Règlement annulé');go('tiers')}`);}
+
 PAGES.tiers=async()=>{
-  H(pageH('Comptes tiers & Recouvrement')+`
-   <div class="tabs"><div class="tab on" onclick="tiersTab('releve',this)">Relevé client (grand livre aux.)</div>
-    <div class="tab" onclick="tiersTab('echeances',this)">Échéances / Facilités</div></div>
-   <div id="tiers-body"></div>`);
+  H(pageH('Comptabilité des tiers')+`
+   <div class="tabs">
+    <div class="tab on" onclick="tiersTab('releve',this)">Clients (411)</div>
+    <div class="tab" onclick="tiersTab('fourn',this)">Fournisseurs (401)</div>
+    <div class="tab" onclick="tiersTab('balance',this)">Balance des tiers</div>
+    <div class="tab" onclick="tiersTab('echeances',this)">Échéances / Facilités</div>
+   </div><div id="tiers-body"></div>`);
   tiersRender('releve');
 };
 function tiersTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');tiersRender(t);}
-async function tiersRender(t){if(t==='releve')return releveSelect();return echeancesView();}
+async function tiersRender(t){
+  if(t==='releve')return releveSelect();
+  if(t==='fourn')return releveFournSelect();
+  if(t==='balance')return balanceTiers();
+  return echeancesView();
+}
+async function releveFournSelect(){const fs=await dbAll('fournisseurs');
+  document.getElementById('tiers-body').innerHTML=`<div class="card"><div class="toolbar">
+    <select id="rvf-fourn" onchange="releveFourn(this.value)"><option value="">— Choisir un fournisseur —</option>
+    ${fs.map(f=>`<option value="${f.id}">${esc(f.nom)}</option>`).join('')}</select></div>
+    <div id="rvf-body"><div class="empty">Sélectionnez un fournisseur pour afficher son compte (401)</div></div></div>`;
+}
+async function releveFourn(fid){if(!fid){document.getElementById('rvf-body').innerHTML='';return;}
+  const f=await dbGet('fournisseurs',fid);
+  const cmds=(await dbAll('cmdAchat')).filter(c=>c.fournId===fid&&c.statut==='recue');
+  const regs=(await dbAll('reglFourn')).filter(r=>r.fournId===fid);
+  let lines=[];
+  cmds.forEach(c=>lines.push({date:c.dateRecep||c.date,libelle:'Achat '+c.num,debit:0,credit:ttcAchat(c)}));
+  regs.forEach(r=>lines.push({date:r.date,libelle:'Règlement ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:r.montant,credit:0,rid:r.id}));
+  lines.sort((a,b)=>a.date<b.date?-1:1);
+  let solde=0;const rows=lines.map(l=>{solde+=l.credit-l.debit;
+    return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
+    <td class="right">${l.credit?FCFA0(l.credit):''}</td><td class="right bold">${FCFA0(solde)}</td>
+    <td>${l.rid?`<button class="btn-r btn-sm" onclick="annulerReglFourn('${l.rid}')">×</button>`:''}</td></tr>`;}).join('');
+  window._releveF={f,lines,solde};
+  document.getElementById('rvf-body').innerHTML=`
+   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(f.nom)} — ${esc(f.pays||'')} ${f.ncc?'• NCC '+esc(f.ncc):''}</div>
+     <button class="btn-b btn-sm" onclick="imprimerReleveFourn()">🖨️ Relevé</button></div>
+   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit (payé)</th><th class="right">Crédit (dû)</th><th class="right">Solde</th><th></th></tr>
+    ${rows||'<tr><td colspan=6 class="empty">Aucun mouvement</td></tr>'}
+    <tr style="background:#f1f5f9"><td colspan=4 class="bold right">SOLDE À PAYER</td>
+     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td><td></td></tr></table>`;
+}
+async function imprimerReleveFourn(){const {f,lines,solde}=window._releveF;const p=await dbGet('parametres','main');
+  let s=0;const rows=lines.map(l=>{s+=l.credit-l.debit;
+    return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="r">${l.debit?FCFA0(l.debit):''}</td>
+    <td class="r">${l.credit?FCFA0(l.credit):''}</td><td class="r">${FCFA0(s)}</td></tr>`;}).join('');
+  apercu('Relevé fournisseur '+f.nom,`<h2 style="color:#1f7a3d">${esc(p.nom)}</h2><h3>RELEVÉ FOURNISSEUR — ${esc(f.nom)}</h3>
+   <p>${esc(f.pays||'')} • arrêté au ${fmtD(today())}</p>
+   <table><tr><th>Date</th><th>Libellé</th><th class="r">Débit</th><th class="r">Crédit</th><th class="r">Solde</th></tr>${rows}
+   <tr><td colspan=4 class="r"><b>SOLDE À PAYER</b></td><td class="r"><b>${FCFA0(solde)} F</b></td></tr></table>`,
+   'table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px}.r{text-align:right}th{background:#f1f5f9}');
+}
+async function balanceTiers(){
+  const cls=await dbAll('clients'),fs=await dbAll('fournisseurs');
+  const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const cmds=(await dbAll('cmdAchat')).filter(c=>c.statut==='recue');
+  const regsF=await dbAll('reglFourn');
+  const cliRows=cls.map(cl=>{const fl=facs.filter(f=>f.clientId===cl.id);
+    const solde=fl.reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);return {nom:cl.nom,solde};})
+    .filter(x=>Math.abs(x.solde)>1).sort((a,b)=>b.solde-a.solde);
+  const fouRows=fs.map(f=>{const dette=cmds.filter(c=>c.fournId===f.id).reduce((a,c)=>a+ttcAchat(c),0);
+    const paye=regsF.filter(r=>r.fournId===f.id).reduce((a,r)=>a+r.montant,0);
+    return {nom:f.nom,solde:dette-paye};}).filter(x=>Math.abs(x.solde)>1).sort((a,b)=>b.solde-a.solde);
+  const totCli=cliRows.reduce((a,x)=>a+x.solde,0),totFou=fouRows.reduce((a,x)=>a+x.solde,0);
+  document.getElementById('tiers-body').innerHTML=`<div class="grid kpis" style="margin-bottom:16px">
+     <div class="kpi orange"><div class="lab">Créances clients (411)</div><div class="val">${FCFA(totCli)}</div></div>
+     <div class="kpi rouge"><div class="lab">Dettes fournisseurs (401)</div><div class="val">${FCFA(totFou)}</div></div>
+     <div class="kpi ${totCli-totFou>=0?'vert':'bleu'}"><div class="lab">Position nette tiers</div><div class="val">${FCFA(totCli-totFou)}</div></div></div>
+   <div class="row">
+    <div class="card f"><div class="card-h">Clients débiteurs (411)</div>
+     <table><tr><th>Client</th><th class="right">Solde dû</th></tr>
+     ${cliRows.map(x=>`<tr><td>${esc(x.nom)}</td><td class="right bold ${x.solde<0?'txt-v':''}">${FCFA(x.solde)}</td></tr>`).join('')||'<tr><td colspan=2 class="empty">—</td></tr>'}
+     <tr style="background:#f1f5f9"><td class="bold">TOTAL</td><td class="right bold">${FCFA(totCli)}</td></tr></table></div>
+    <div class="card f"><div class="card-h">Fournisseurs créditeurs (401)</div>
+     <table><tr><th>Fournisseur</th><th class="right">Solde à payer</th></tr>
+     ${fouRows.map(x=>`<tr><td>${esc(x.nom)}</td><td class="right bold ${x.solde<0?'txt-v':''}">${FCFA(x.solde)}</td></tr>`).join('')||'<tr><td colspan=2 class="empty">—</td></tr>'}
+     <tr style="background:#f1f5f9"><td class="bold">TOTAL</td><td class="right bold">${FCFA(totFou)}</td></tr></table></div>
+   </div>`;
+}
+
 async function releveSelect(){const cls=await dbAll('clients');
   document.getElementById('tiers-body').innerHTML=`<div class="card"><div class="toolbar">
     <select id="rv-client" onchange="releveTiers(this.value)"><option value="">— Choisir un client —</option>
