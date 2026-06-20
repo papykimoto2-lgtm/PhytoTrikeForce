@@ -3435,9 +3435,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn','audit','lettrages'];
+'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn','audit','lettrages','retours'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',10);
+  const r=indexedDB.open('PSF_ERP',11);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -4000,11 +4000,13 @@ PAGES.stock=async()=>{
     <div class="tab" onclick="stockTab('reappro',this)">Réapprovisionnement</div>
     <div class="tab" onclick="stockTab('transferts',this)">Transferts</div>
     <div class="tab" onclick="stockTab('depots',this)">Dépôts</div>
+    <div class="tab" onclick="stockTab('retours',this)">Retours &amp; rebuts</div>
    </div><div id="stock-body"></div>`);
   stockRender('etat');
 };
 function stockTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');stockRender(t);}
 async function stockRender(t){const box=document.getElementById('stock-body');
+  if(t==='retours')return stockRetours(box);
   if(t==='etat')return stockEtat(box);
   if(t==='valo')return stockValo(box);
   if(t==='journal')return stockJournal(box);
@@ -7839,6 +7841,81 @@ async function liquiderTVA(){const bal=await balance();
   await ecrire('OD',today(),'Liquidation TVA au '+today(),lignes,'TVA-'+today().replace(/-/g,''));
   toast(net>=0?('TVA à décaisser : '+FCFA(net)):('Crédit de TVA : '+FCFA(-net)));
   go('compta');
+}
+
+
+/* ====== RETOURS & REBUTS ====== */
+async function stockRetours(box){const rs=(await dbAll('retours')).sort((a,b)=>a.date<b.date?1:-1);
+  const prods=await dbAll('produits');const cls=await dbAll('clients');
+  const pn=id=>{const p=prods.find(x=>x.id===id);return p?p.nom:'?';};
+  const reinteg=rs.filter(r=>r.type==='client'&&r.etat==='bon').reduce((a,r)=>a+(r.valeur||0),0);
+  const pertes=rs.filter(r=>r.etat==='rebut').reduce((a,r)=>a+(r.valeur||0),0);
+  const avoirs=rs.reduce((a,r)=>a+(r.avoir||0),0);
+  box.innerHTML=`<div class="grid kpis" style="margin-bottom:14px">
+    <div class="kpi bleu"><div class="lab">Retours enregistrés</div><div class="val">${rs.length}</div></div>
+    <div class="kpi vert"><div class="lab">Valeur réintégrée</div><div class="val">${FCFA(reinteg)}</div></div>
+    <div class="kpi rouge"><div class="lab">Pertes (rebut)</div><div class="val">${FCFA(pertes)}</div></div>
+    <div class="kpi orange"><div class="lab">Avoirs émis (HT)</div><div class="val">${FCFA(avoirs)}</div></div></div>
+   <div class="card"><div class="toolbar" style="margin-bottom:10px">
+     <button class="btn-p btn-sm" onclick="retourClientModal()">↩️ Retour client</button>
+     <button class="btn-r btn-sm" onclick="miseRebutModal()" style="margin-left:8px">🗑️ Mise au rebut</button></div>
+    <table><tr><th>Date</th><th>Type</th><th>Produit</th><th>Client</th><th class="right">Qté</th><th>Motif</th><th>État</th><th class="right">Valeur</th><th>Avoir</th></tr>
+    ${rs.map(r=>`<tr><td>${fmtD(r.date)}</td><td><span class="tag ${r.type==='rebut'?'t-rouge':'t-bleu'}">${r.type==='rebut'?'Rebut':'Retour'}</span></td>
+      <td class="sm">${esc(pn(r.produitId))}</td><td class="sm">${r.clientId?esc((cls.find(c=>c.id===r.clientId)||{}).nom||''):'—'}</td>
+      <td class="right">${r.qte}</td><td class="sm">${esc(r.motif||'')}</td>
+      <td><span class="tag ${r.etat==='bon'?'t-vert':'t-orange'}">${r.etat==='bon'?'Réintégré':'Rebut'}</span></td>
+      <td class="right">${FCFA(r.valeur||0)}</td><td class="sm">${r.avoirNum||(r.avoir?FCFA0(r.avoir):'—')}</td></tr>`).join('')
+    ||'<tr><td colspan=9 class="empty">Aucun retour enregistré</td></tr>'}</table>
+    <p class="sm txt-m">Retour en bon état : réintégration au stock. Périmé/abîmé : mise au rebut, perte valorisée au coût d'achat.</p></div>`;
+}
+async function retourClientModal(){const cls=await dbAll('clients');const prods=await dbAll('produits');const deps=await dbAll('depots');
+  modal('Retour client',`
+   <div class="row"><div class="fld f"><label>Client</label><select id="rt-cli">${cls.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Dépôt de réintégration</label><select id="rt-dep">${deps.map(d=>`<option value="${d.id}" ${d.id===STATE.depot?'selected':''}>${esc(d.nom)}</option>`).join('')}</select></div></div>
+   <div class="row"><div class="fld f"><label>Produit</label><select id="rt-prod">${prods.map(p=>`<option value="${p.id}" data-pa="${p.prixAchat}" data-tva="${p.tva}">${esc(p.nom)}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Quantité</label><input id="rt-qte" type="number" value="1"></div></div>
+   <div class="row"><div class="fld f"><label>Motif</label><select id="rt-motif"><option>Invendu</option><option>Erreur de commande</option><option>Défaut produit</option><option>Surstock client</option></select></div>
+    <div class="fld f"><label>État</label><select id="rt-etat" onchange="rtEtat()"><option value="bon">Bon état → réintégrer</option><option value="rebut">Périmé / abîmé → rebut</option></select></div></div>
+   <div class="fld"><label>Avoir client — montant HT (0 = aucun avoir)</label><input id="rt-avoir" type="number" value="0"></div>
+   <p class="sm txt-m" id="rt-note">Bon état : la quantité revient en stock. Un avoir (si renseigné) réduit la créance et le CA.</p>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button><button class="btn-p" onclick="saveRetourClient()">Enregistrer le retour</button>`,true);
+}
+function rtEtat(){const e=val('rt-etat');const n=document.getElementById('rt-note');
+  if(n)n.textContent=e==='bon'?'Bon état : la quantité revient en stock.':'Périmé/abîmé : mise au rebut (pas de réintégration), perte valorisée.';}
+async function saveRetourClient(){const cid=val('rt-cli');const opt=document.querySelector('#rt-prod option:checked');
+  const pid=val('rt-prod');const qte=num('rt-qte');if(qte<=0){toast('Quantité invalide');return;}
+  const dep=val('rt-dep');const etat=val('rt-etat');const motif=val('rt-motif');
+  const pa=+(opt?.dataset.pa||0);const tva=+(opt?.dataset.tva||0);const valeur=Math.round(qte*pa);
+  const avHT=num('rt-avoir');
+  if(etat==='bon')await mouvStock(pid,dep,qte,'entree','Retour client ('+motif+')');
+  let avoirNum=null;
+  if(avHT>0){const cl=await dbGet('clients',cid);const tvaM=Math.round(avHT*tva/100);const ttc=avHT+tvaM;
+    avoirNum='AV-'+await nextSeq('avoir');
+    await ecrire('VTE',today(),'Avoir '+avoirNum+' — '+(cl?cl.nom:''),[
+      {compte:'701',debit:avHT,credit:0},{compte:'4431',debit:tvaM,credit:0},
+      {compte:cl?.compte||'4111',debit:0,credit:ttc}],avoirNum);
+    await dbPut('avoirs',{id:uid(),num:avoirNum,clientId:cid,produitId:pid,qte,montantHT:avHT,tva:tvaM,totalTTC:ttc,date:today(),motif});}
+  await dbPut('retours',{id:uid(),type:'client',clientId:cid,produitId:pid,qte,motif,etat,depotId:dep,valeur,avoir:avHT,avoirNum,date:today()});
+  await logAudit('retour_client','retours',pid,'Retour '+qte+' u. ('+etat+', '+motif+')'+(avoirNum?' + '+avoirNum:''));
+  closeModal();toast('Retour enregistré'+(etat==='bon'?' — réintégré':' — rebut')+(avoirNum?' + '+avoirNum:''));go('stock');
+}
+async function miseRebutModal(){const prods=await dbAll('produits');const deps=await dbAll('depots');
+  modal('Mise au rebut (périmé / cassé)',`
+   <div class="row"><div class="fld f"><label>Produit</label><select id="rb-prod">${prods.map(p=>`<option value="${p.id}" data-pa="${p.prixAchat}">${esc(p.nom)}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Dépôt</label><select id="rb-dep">${deps.map(d=>`<option value="${d.id}" ${d.id===STATE.depot?'selected':''}>${esc(d.nom)}</option>`).join('')}</select></div></div>
+   <div class="row"><div class="fld f"><label>Quantité</label><input id="rb-qte" type="number" value="1"></div>
+    <div class="fld f"><label>Motif</label><select id="rb-motif"><option>Périmé</option><option>Cassé</option><option>Détérioré</option><option>Contamination</option></select></div></div>
+   <p class="sm txt-m">La quantité sort du stock (mouvement « Rebut »). La valeur au coût d'achat est enregistrée comme perte.</p>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button><button class="btn-r" onclick="saveRebut()">Mettre au rebut</button>`);
+}
+async function saveRebut(){const opt=document.querySelector('#rb-prod option:checked');const pid=val('rb-prod');
+  const qte=num('rb-qte');if(qte<=0){toast('Quantité invalide');return;}
+  const dep=val('rb-dep');const motif=val('rb-motif');const pa=+(opt?.dataset.pa||0);const valeur=Math.round(qte*pa);
+  const stk=await stockProduit(pid,dep);if(qte>stk){toast('Stock insuffisant ('+stk+')');return;}
+  await mouvStock(pid,dep,qte,'sortie','Rebut: '+motif);
+  await dbPut('retours',{id:uid(),type:'rebut',produitId:pid,qte,motif,etat:'rebut',depotId:dep,valeur,date:today()});
+  await logAudit('rebut','retours',pid,'Rebut '+qte+' u. ('+motif+') — perte '+FCFA0(valeur));
+  closeModal();toast('Mis au rebut — perte '+FCFA(valeur));go('stock');
 }
 
 /* ====== INIT ====== */
