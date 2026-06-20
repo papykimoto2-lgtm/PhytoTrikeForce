@@ -3344,11 +3344,44 @@ PAGES.clients=async()=>{
       <td><span class="tag t-gris">${c.tarif}</span></td>
       <td class="right ${solde>0?'txt-r bold':''}">${FCFA(solde)}</td>
       <td><button class="btn-g btn-sm" onclick="editClient('${c.id}')">Éditer</button></td></tr>`;}
+  window._clientsRows=rows;
   H(pageH('Clients','<button class="btn-p" onclick="editClient()">+ Client</button>')+(await clientsDash())+`
-   <div class="card"><table>
-    <tr><th>Nom</th><th>Type</th><th>Localité</th><th>Tél</th><th>Tarif</th><th class="right">Solde dû</th><th></th></tr>
-    ${rows}</table></div>`);
+   <div class="tabs"><div class="tab on" onclick="clientsTab('liste',this)">Liste clients</div>
+    <div class="tab" onclick="clientsTab('distrib',this)">Suivi distributeurs</div></div>
+   <div id="clients-body"></div>`);
+  clientsTab('liste');
 };
+function clientsTab(t,el){if(el){document.querySelectorAll('.tabs .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');}
+  if(t==='distrib')return renderDistrib();
+  document.getElementById('clients-body').innerHTML=`<div class="card"><table>
+    <tr><th>Nom</th><th>Type</th><th>Localité</th><th>Tél</th><th>Tarif</th><th class="right">Solde dû</th><th></th></tr>
+    ${window._clientsRows}</table></div>`;}
+async function encoursClient(clientId){const facs=await dbAll('factures');
+  return facs.filter(f=>f.clientId===clientId&&f.statut!=='annulee').reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);}
+async function renderDistrib(){const cls=await dbAll('clients');const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
+  const an=String(new Date().getFullYear());const dist=cls.filter(c=>c.type==='distributeur'||c.type==='revendeur');
+  let rows='',totCA=0,totRist=0;
+  for(const c of dist){const fc=facs.filter(f=>f.clientId===c.id);
+    const ca=fc.filter(f=>(f.date||'').startsWith(an)).reduce((a,f)=>a+f.totalHT,0);
+    const enc=fc.reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);
+    const obj=c.objectifCA||0;const pct=obj?Math.round(ca/obj*100):0;
+    const rist=Math.round(ca*(c.ristourne||0)/100);totCA+=ca;totRist+=rist;
+    const plaf=c.plafond||0;const dep=plaf>0&&enc>plaf;
+    rows+=`<tr><td class="bold">${esc(c.nom)}</td><td class="sm">${c.remiseDist||0}%</td><td class="sm">${c.delaiPaiement||0} j</td>
+     <td class="right">${FCFA(ca)}</td><td class="right sm">${obj?FCFA(obj):'—'}</td>
+     <td><div style="background:#eef1f0;border-radius:6px;height:13px;min-width:90px;overflow:hidden"><div style="background:${pct>=100?'#1f7a3d':pct>=60?'#e67e22':'#d63031'};height:13px;width:${Math.min(100,pct)}%"></div></div><span class="sm">${pct}%</span></td>
+     <td class="right">${FCFA(rist)}</td>
+     <td class="right ${dep?'txt-r bold':''}">${FCFA(enc)}${plaf?`<span class="sm txt-m"> / ${FCFA(plaf)}</span>`:''}${dep?' ⚠️':''}</td></tr>`;}
+  document.getElementById('clients-body').innerHTML=`
+   <div class="grid kpis" style="margin-bottom:14px">
+    <div class="kpi bleu"><div class="lab">Distributeurs / revendeurs</div><div class="val">${dist.length}</div></div>
+    <div class="kpi vert"><div class="lab">CA cumulé ${an}</div><div class="val">${FCFA(totCA)}</div></div>
+    <div class="kpi orange"><div class="lab">Ristournes estimées</div><div class="val">${FCFA(totRist)}</div></div></div>
+   <div class="card"><table>
+    <tr><th>Distributeur</th><th>Remise</th><th>Délai</th><th class="right">CA ${an}</th><th class="right">Objectif</th><th>Réalisation</th><th class="right">Ristourne est.</th><th class="right">Encours / Plafond</th></tr>
+    ${rows||'<tr><td colspan=8 class="empty">Aucun distributeur enregistré</td></tr>'}</table>
+    <p class="sm txt-m">Ristourne estimée = CA HT annuel × taux RFA. Encours = factures non soldées (TTC). ⚠️ = plafond dépassé.</p></div>`;
+}
 async function editClient(id){const c=id?await dbGet('clients',id):{type:'revendeur',tarif:'gros',zone:'Abidjan'};
   modal(id?'Modifier client':'Nouveau client',`
    <div class="fld"><label>Nom / Raison sociale</label><input id="c-nom" value="${esc(c.nom||'')}"></div>
@@ -3365,7 +3398,16 @@ async function editClient(id){const c=id?await dbGet('clients',id):{type:'revend
    <div class="row"><div class="fld f"><label>Statut</label><select id="c-statut"><option value="client" ${c.statut!=='prospect'?'selected':''}>Client</option><option value="prospect" ${c.statut==='prospect'?'selected':''}>Prospect</option></select></div>    <div class="fld f"><label>Latitude GPS</label><input id="c-lat" value="${c.lat||''}" placeholder="auto si vide"></div>    <div class="fld f"><label>Longitude GPS</label><input id="c-lng" value="${c.lng||''}" placeholder="auto si vide"></div></div>
    <div class="row"><div class="fld f"><label>Compte comptable</label><input id="c-cpt" value="${esc(c.compte||'4111')}"></div>
     <div class="fld f"><label>NCC / IFU (pour FNE)</label><input id="c-ncc" value="${esc(c.ncc||'')}" placeholder="Numéro Compte Contribuable"></div>
-    <div class="fld f"><label>Plafond crédit</label><input id="c-plaf" type="number" value="${c.plafond||0}"></div></div>`,
+    <div class="fld f"><label>Plafond crédit</label><input id="c-plaf" type="number" value="${c.plafond||0}"></div></div>
+   <div class="card-h" style="margin-top:6px;font-size:13px">📦 Conditions distributeur / revendeur</div>
+   <div class="row">
+    <div class="fld f"><label>Remise contractuelle (%)</label><input id="c-remise" type="number" step="0.5" value="${c.remiseDist||0}"></div>
+    <div class="fld f"><label>Délai de paiement (jours)</label><input id="c-delai" type="number" value="${c.delaiPaiement||0}"></div>
+    <div class="fld f"><label>Ristourne / RFA (%)</label><input id="c-ristourne" type="number" step="0.5" value="${c.ristourne||0}"></div></div>
+   <div class="row">
+    <div class="fld f"><label>Objectif CA annuel (FCFA)</label><input id="c-objectif" type="number" value="${c.objectifCA||0}"></div>
+    <div class="fld f"><label>Encours au plafond</label><select id="c-bloque"><option value="0" ${!c.encoursBloque?'selected':''}>Alerte seulement</option><option value="1" ${c.encoursBloque?'selected':''}>Bloquer au dépassement</option></select></div>
+    <div class="fld f"></div></div>`,
    `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer ce client ?','async()=>{await dbDel(\\'clients\\',\\'${id}\\');go(\\'clients\\')}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
     <button class="btn-p" onclick="saveClient('${id||''}')">Enregistrer</button>`);
@@ -3377,7 +3419,8 @@ async function saveClient(id){const c=id?await dbGet('clients',id):{id:uid(),sol
   if(isNaN(lat)||isNaN(lng)){const co=CITIES[(val('c-ville')||'').trim().toLowerCase()]||CITIES[(val('c-zone')||'').toLowerCase()]||CITIES['abidjan'];lat=co[0];lng=co[1];}
   Object.assign(c,{nom:val('c-nom'),type:val('c-type'),tarif:val('c-tarif'),zone:val('c-zone'),
     ville:val('c-ville'),tel:val('c-tel'),compte:val('c-cpt'),ncc:val('c-ncc'),plafond:num('c-plaf'),
-    statut:val('c-statut')||'client',lat,lng});
+    statut:val('c-statut')||'client',lat,lng,
+    remiseDist:num('c-remise'),delaiPaiement:num('c-delai'),ristourne:num('c-ristourne'),objectifCA:num('c-objectif'),encoursBloque:val('c-bloque')==='1'});
   await dbPut('clients',c);closeModal();toast('Client enregistré');go('clients');}
 
 /* ---- COMMANDES CLIENT ---- */
@@ -3404,12 +3447,15 @@ async function confirmerDevis(id){const c=await dbGet('cmdClient',id);
   let alerte='';
   for(const l of c.lignes){const stk=await stockProduit(l.produitId,STATE.depot);
     if(stk<l.qte){const p=await dbGet('produits',l.produitId);alerte+=' • '+(p?p.nom:'')+': stock '+stk+' < '+l.qte;}}
+  const enc=await encoursClient(c.clientId);const ttcEst=Math.round(c.totalHT*1.18);const plaf=(cl&&cl.plafond)||0;
+  const depass=plaf>0&&(enc+ttcEst)>plaf;const bloque=cl&&cl.encoursBloque&&depass;
   modal('Transformer en commande ferme',`
    <p>Confirmer le devis <b>${esc(c.num)}</b> (${esc(cl?cl.nom:'')}) — total ${FCFA(c.totalHT)} HT ?</p>
    <p class="sm txt-m">La commande passera au statut <b>confirmée</b> et pourra être livrée puis facturée.</p>
-   ${alerte?`<p class="sm txt-r">⚠️ Stock insuffisant :${esc(alerte)} — vous pourrez réapprovisionner avant la livraison.</p>`:''}`,
+   ${plaf>0?`<p class="sm ${depass?'txt-r bold':'txt-m'}">Encours ${FCFA(enc)} + commande ≈ ${FCFA(ttcEst)} / plafond ${FCFA(plaf)}${depass?' — ⚠️ dépassement':' ✓'}</p>`:''}
+   ${alerte?`<p class="sm txt-r">⚠️ Stock insuffisant :${esc(alerte)} — réapprovisionnez avant la livraison.</p>`:''}`,
    `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-p" onclick="doConfirmerDevis('${id}')">✓ Valider la commande ferme</button>`);
+    ${bloque?'<span class="sm txt-r" style="align-self:center">⛔ Encours bloquant dépassé — règlement requis</span>':`<button class="btn-p" onclick="doConfirmerDevis('${id}')">✓ Valider la commande ferme</button>`}`);
 }
 async function doConfirmerDevis(id){const c=await dbGet('cmdClient',id);
   c.statut='confirmee';c.dateConfirm=today();await dbPut('cmdClient',c);
@@ -3419,7 +3465,7 @@ async function cmdClientModal(id){const cls=await dbAll('clients');
   let c=id?await dbGet('cmdClient',id):null;LIGNES=c?c.lignes.map(l=>Object.assign({},l)):[];
   modal(id?'Modifier '+c.num:'Nouvelle commande client',`
    <div class="row"><div class="fld f"><label>Client</label><select id="cc-client" onchange="renderLignesVente()">
-     ${cls.map(cl=>`<option value="${cl.id}" data-tarif="${cl.tarif}" ${c&&c.clientId===cl.id?'selected':''}>${esc(cl.nom)} — ${cl.tarif}</option>`).join('')}</select></div>
+     ${cls.map(cl=>`<option value="${cl.id}" data-tarif="${cl.tarif}" data-remise="${cl.remiseDist||0}" ${c&&c.clientId===cl.id?'selected':''}>${esc(cl.nom)} — ${cl.tarif}${cl.remiseDist?(' -'+cl.remiseDist+'%'):''}</option>`).join('')}</select></div>
    <div class="fld f"><label>Date</label><input id="cc-date" type="date" value="${c?c.date:today()}"></div></div>
    <div class="card-h" style="margin-top:8px">Lignes</div>
    <div id="cc-lignes"></div>
@@ -3432,11 +3478,12 @@ async function cmdClientModal(id){const cls=await dbAll('clients');
 }
 function tarifPrix(p,tarif){return tarif==='detail'?p.prixDetail:(tarif==='moyen'?p.prixMoyen:p.prixGros);}
 async function addLigneVente(){const prods=await dbAll('produits');
-  const tarif=document.querySelector('#cc-client option:checked')?.dataset.tarif||'gros';
-  LIGNES.push({produitId:prods[0].id,qte:0,pu:tarifPrix(prods[0],tarif)});renderLignesVente();}
+  const opt=document.querySelector('#cc-client option:checked');const tarif=opt?.dataset.tarif||'gros';const rem=+(opt?.dataset.remise||0);
+  LIGNES.push({produitId:prods[0].id,qte:0,pu:Math.round(tarifPrix(prods[0],tarif)*(1-rem/100))});renderLignesVente();}
 async function renderLignesVente(){const prods=await dbAll('produits');
   const tarif=document.querySelector('#cc-client option:checked')?.dataset.tarif||'gros';
-  LIGNES.forEach(l=>{const p=prods.find(x=>x.id===l.produitId);if(p&&!l.manuel)l.pu=tarifPrix(p,tarif);});
+  const _rem=+(document.querySelector('#cc-client option:checked')?.dataset.remise||0);
+  LIGNES.forEach(l=>{const p=prods.find(x=>x.id===l.produitId);if(p&&!l.manuel)l.pu=Math.round(tarifPrix(p,tarif)*(1-_rem/100));});
   let html=`<table class="lines-tbl"><tr><th>Produit</th><th>Stock</th><th>Qté</th><th>P.U.</th><th class="right">Total HT</th><th></th></tr>`;
   for(let i=0;i<LIGNES.length;i++){const l=LIGNES[i];const stk=await stockProduit(l.produitId,STATE.depot);
     html+=`<tr>
@@ -3457,8 +3504,8 @@ async function saveCmdClient(statut,id){const lignes=LIGNES.filter(l=>l.qte>0);
   const prods=await dbAll('produits');
   lignes.forEach(l=>{const p=prods.find(x=>x.id===l.produitId);l.tva=p.tva;l.totalHT=l.qte*l.pu;});
   const totalHT=lignes.reduce((a,l)=>a+l.totalHT,0);
-  if(id){const c=await dbGet('cmdClient',id);Object.assign(c,{clientId:val('cc-client'),date:val('cc-date'),lignes,totalHT,statut});await dbPut('cmdClient',c);}
-  else{const num=await nextSeq('cmdClient');await dbPut('cmdClient',{id:uid(),num:'CC-'+num,clientId:val('cc-client'),date:val('cc-date'),depotId:STATE.depot,lignes,totalHT,statut});}
+  if(id){const c=await dbGet('cmdClient',id);Object.assign(c,{clientId:val('cc-client'),date:val('cc-date'),lignes,totalHT,statut,remisePct:+(document.querySelector('#cc-client option:checked')?.dataset.remise||0)});await dbPut('cmdClient',c);}
+  else{const num=await nextSeq('cmdClient');await dbPut('cmdClient',{id:uid(),num:'CC-'+num,clientId:val('cc-client'),date:val('cc-date'),depotId:STATE.depot,lignes,totalHT,statut,remisePct:+(document.querySelector('#cc-client option:checked')?.dataset.remise||0)});}
   closeModal();toast('Commande '+statut);go('commandes');
 }
 async function livrerCmd(id){const c=await dbGet('cmdClient',id);
@@ -3584,6 +3631,9 @@ async function doFacturerCmd(id){const c=await dbGet('cmdClient',id);const type=
   const lignesF=[];for(const l of c.lignes){const base=(l.qteLivree!=null?l.qteLivree:l.qte);const aFact=base-(l.qteFacturee||0);
     if(aFact>0)lignesF.push({produitId:l.produitId,qte:aFact,pu:l.pu,tva:l.tva});}
   if(!lignesF.length){toast('Rien à facturer (déjà facturé)');return;}
+  const clB=await dbGet('clients',c.clientId);
+  if(clB&&clB.encoursBloque&&(clB.plafond||0)>0){const enc=await encoursClient(c.clientId);const ttcEst=lignesF.reduce((a,l)=>a+l.qte*l.pu,0)*1.18;
+    if(enc+ttcEst>clB.plafond){toast('⛔ Encours bloquant dépassé pour '+clB.nom+' — règlement requis');return;}}
   await genererFacture(c.clientId,lignesF,id,type);
   for(const l of c.lignes){const lf=lignesF.find(x=>x.produitId===l.produitId);if(lf)l.qteFacturee=(l.qteFacturee||0)+lf.qte;}
   const toutFact=c.lignes.every(l=>(l.qteFacturee||0)>=l.qte);
@@ -3599,7 +3649,7 @@ async function genererFacture(clientId,lignes,cmdId,type){
   const num=await nextSeq(type==='fne'?'fne':'facture');const ttc=ht+tva;
   const fac={id:uid(),num:(type==='fne'?'FNE-':'FA-')+num,clientId,cmdId,date:today(),lignes,type,
     nccClient:cl.ncc||'',statutFNE:type==='fne'?'a_transmettre':'',refFNE:'',
-    totalHT:ht,totalTVA:Math.round(tva),totalTTC:Math.round(ttc),regle:0,statut:'emise'};
+    totalHT:ht,totalTVA:Math.round(tva),totalTTC:Math.round(ttc),regle:0,statut:'emise',echeance:(cl.delaiPaiement?(()=>{const d=new Date();d.setDate(d.getDate()+cl.delaiPaiement);return d.toISOString().slice(0,10);})():today())};
   await dbPut('factures',fac);
   // écriture vente : 411 D / 701 C / 4431 C
   await ecrire('VTE',today(),'Vente '+fac.num+' — '+cl.nom,[
@@ -4767,36 +4817,27 @@ function gmapDirLink(route){const o=route[0],d=route[route.length-1];
 PAGES.carte=async()=>{
   const cls=await dbAll('clients'),deps=await dbAll('depots');
   window._carte={cls,deps};
-  H(pageH('Carte & Itinéraires','<button class="btn-p" onclick="planifierItineraire()">🗺️ Planifier itinéraire</button>')+`
-   <div class="tabs"><div class="tab on" onclick="carteTab('osm',this)">Carte interactive (OSM)</div>
-    <div class="tab" onclick="carteTab('svg',this)">Carte schéma (offline)</div></div>
-   <div id="carte-body"></div>`);
-  carteRender('osm');
+  const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
+  H(pageH('Carte & Itinéraires',
+    `<span class="sm txt-m" style="margin-right:8px">
+      <span class="badge-dot" style="background:#1f7a3d"></span>${nbC} client${nbC>1?'s':''}
+      <span class="badge-dot" style="background:#e67e22;margin-left:10px"></span>${nbP} prospect${nbP>1?'s':''}
+      <span class="badge-dot" style="background:#1d3f6e;margin-left:10px"></span>Dépôts
+    </span>
+    <button class="btn-p" onclick="planifierItineraire()">🗺️ Planifier itinéraire</button>`)+
+   `<div class="card" style="padding:0;overflow:hidden;margin-bottom:0">
+      <div id="osm-map" style="width:100%;height:calc(100vh - 180px);min-height:420px;background:#eef1f0"></div>
+    </div>
+    <div class="sm txt-m" style="margin-top:6px;text-align:right">Tuiles © OpenStreetMap contributors • Leaflet</div>`);
+  const pts=[];
+  deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];
+    pts.push({lat:c[0],lng:c[1],color:'#1d3f6e',popup:'🏬 <b>'+esc(d.nom)+'</b><br>Dépôt — '+esc(d.zone||'')});});
+  cls.forEach(c=>{const co=clientCoords(c);const pro=c.statut==='prospect';
+    pts.push({lat:co.lat,lng:co.lng,color:pro?'#e67e22':'#1f7a3d',
+      popup:'<b>'+esc(c.nom)+'</b><br>'+esc(c.ville||c.zone||'')+(c.tel?'<br>📞 '+esc(c.tel):'')+
+      '<br><a href="'+gmapLink(co.lat,co.lng)+'" target="_blank">Google Maps ↗</a>'});});
+  setTimeout(()=>leafletInit('osm-map',pts,null),80);
 };
-function carteTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');carteRender(t);}
-function carteRender(t){const box=document.getElementById('carte-body');const {cls,deps}=window._carte;
-  if(t==='osm'){
-    const pts=[];
-    deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];pts.push({lat:c[0],lng:c[1],color:'#1d3f6e',popup:'🏬 <b>'+esc(d.nom)+'</b><br>Dépôt — '+esc(d.zone||'')});});
-    cls.forEach(c=>{const co=clientCoords(c);const pro=c.statut==='prospect';
-      pts.push({lat:co.lat,lng:co.lng,color:pro?'#e67e22':'#1f7a3d',popup:'<b>'+esc(c.nom)+'</b><br>'+esc(c.ville||c.zone||'')+(c.tel?'<br>📞 '+esc(c.tel):'')+'<br><a href="'+gmapLink(co.lat,co.lng)+'" target="_blank">Google Maps ↗</a>'});});
-    const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
-    box.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><div id="osm-map" style="width:100%;height:480px;background:#eef1f0"></div></div>
-      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
-      <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
-      <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt
-      <span style="margin-left:12px" class="txt-m">Tuiles © OpenStreetMap • Leaflet</span></div>`;
-    setTimeout(()=>leafletInit('osm-map',pts,null),60);
-    }else{
-    const markers=[];deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];markers.push({lat:c[0],lng:c[1],label:'🏬 '+d.nom,kind:'depot'});});
-    cls.forEach(c=>{const co=clientCoords(c);markers.push({lat:co.lat,lng:co.lng,label:c.nom,kind:c.statut==='prospect'?'prospect':'client',show:false});});
-    const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
-    box.innerHTML=`<div class="card">${ciMapSVG(markers,null)}
-      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
-      <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
-      <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt</div></div>`;
-  }
-}
 function centrerGmap(v){if(!v)return;const[la,ln]=v.split(',');const f=document.getElementById('gmap-frame');if(f)f.src=gmapPoint(la,ln,12);}
 async function planifierItineraire(){const cls=await dbAll('clients');
   modal('Planifier un itinéraire',`
@@ -4826,21 +4867,13 @@ async function voirItineraire(id){
     <td class="right sm txt-m">${i>0?Math.round(haversine(route[i-1],route[i]))+' km':'départ'}</td></tr>`).join('');
   const gLink=gmapDirLink(route);
   modal('Itinéraire — '+(route.length-1)+' visites',
-   `<div class="tabs"><div class="tab on" onclick="itinTab('osm',this)">Carte OSM</div>
-     <div class="tab" onclick="itinTab('svg',this)">Schéma offline</div></div>
-    <div id="itin-map"><div id="itin-osm" style="width:100%;height:340px;border-radius:8px;background:#eef1f0"></div></div>
+   `<div id="itin-map"><div id="itin-osm" style="width:100%;height:340px;border-radius:8px;background:#eef1f0"></div></div>
     <table style="margin-top:10px"><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
-    <div class="bold" style="margin-top:8px">Distance à vol d'oiseau ≈ ${Math.round(dist)} km</div>
-    <div style="display:none" id="itin-svg-data">${ciMapSVG(markers,route)}</div>`,
+    <div class="bold" style="margin-top:8px">Distance à vol d'oiseau ≈ ${Math.round(dist)} km</div>`,
    `<button class="btn-g" onclick="closeModal()">Fermer</button>
     <a href="${gLink}" target="_blank" class="btn-p" style="text-decoration:none">🧭 Ouvrir dans Google Maps</a>
     <button class="btn-b" onclick="imprimerItineraire()">🖨️ Aperçu / Imprimer</button>`,true);
   setTimeout(()=>leafletInit('itin-osm',[],ITIN.route),80);
-}
-function itinTab(t,el){document.querySelectorAll('.modal .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');
-  const box=document.getElementById('itin-map');
-  if(t==='svg'){box.innerHTML=document.getElementById('itin-svg-data').innerHTML;}
-  else{box.innerHTML='<div id="itin-osm" style="width:100%;height:340px;border-radius:8px;background:#eef1f0"></div>';setTimeout(()=>leafletInit('itin-osm',[],ITIN.route),60);}
 }
 async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('parametres','main');
   const markers=ITIN.route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
