@@ -3771,7 +3771,7 @@ async function refreshNavBadges(){try{
   const prods=await dbAll('produits');let bas=0;for(const p of prods){const q=await stockProduit(p.id,null);if(q<=(p.seuil||0))bas++;}
   set('stock',bas,'b-orange');
 }catch(e){}}
-function go(page){STATE.page=page;
+function go(page){STATE.page=page;if(page!=='compta')EX_VIEW=null;
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('on',n.dataset.k===page));
   (PAGES[page]||PAGES.dashboard)();refreshNavBadges();}
 
@@ -3798,8 +3798,19 @@ async function ecrire(journal,date,libelle,lignes,piece,extra){
   await logAudit('creation_ecriture','ecritures',e.id,numero+' — '+libelle);
   return e;
 }
+let EX_VIEW=null;
+async function ecrituresVue(){const all=await dbAll('ecritures');if(!EX_VIEW)return all;
+  const ex=await dbGet('exercices',EX_VIEW);
+  return all.filter(e=>e.exercice===EX_VIEW||(!e.exercice&&ex&&e.date>=ex.debut&&e.date<=ex.fin));}
+async function ecrireEx(exId,journal,date,libelle,lignes,piece){const ex=await dbGet('exercices',exId);
+  const numero=journal+'-'+(ex?ex.annee:'NA')+'-'+await nextSeq('ec-'+journal+'-'+(ex?ex.annee:'NA'));
+  const e={id:uid(),journal,numero,date,libelle,piece:piece||'',exercice:exId,lignes,creeParId:STATE.user?.id||null,creeParNom:STATE.user?.nom||'Système',creeLe:new Date().toISOString()};
+  await dbPut('ecritures',e);
+  for(const l of lignes){if(!(await dbGet('comptes',l.compte)))await ensureCompte(l.compte,'(compte auto-créé) '+l.compte,inferTypeCompte(l.compte));}
+  for(const l of lignes){const c=await dbGet('comptes',l.compte);if(c){c.solde=(c.solde||0)+(l.debit||0)-(l.credit||0);await dbPut('comptes',c);}}
+  await logAudit('creation_ecriture','ecritures',e.id,numero+' — '+libelle);return e;}
 async function balance(){
-  const cs=await dbAll('comptes');const ecs=await dbAll('ecritures');
+  const cs=await dbAll('comptes');const ecs=await ecrituresVue();
   const m={};cs.forEach(c=>m[c.num]={num:c.num,lib:c.libelle,type:c.type,debit:0,credit:0});
   ecs.forEach(e=>e.lignes.forEach(l=>{
     if(!m[l.compte])m[l.compte]={num:l.compte,lib:'(compte non répertorié)',type:inferTypeCompte(l.compte),debit:0,credit:0};
@@ -4615,7 +4626,11 @@ async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=a
 
 /* ---- COMPTABILITÉ ---- */
 PAGES.compta=async()=>{
-  H(pageH('Comptabilité SYSCOHADA','<button class="btn-g btn-sm" onclick="fecExport()">⬇️ Export FEC</button> <button class="btn-b" onclick="ecritureModal()">+ Écriture manuelle</button>')+`
+  const _exs=(await dbAll('exercices')).sort((a,b)=>b.annee-a.annee);
+  const _exSel=`<select onchange="EX_VIEW=this.value||null;go('compta')" style="margin-right:8px;padding:6px 8px;border-radius:8px">
+     <option value="" ${!EX_VIEW?'selected':''}>Tous les exercices</option>
+     ${_exs.map(e=>`<option value="${e.id}" ${EX_VIEW===e.id?'selected':''}>Exercice ${e.annee}${e.cloture?' — clôturé':''}</option>`).join('')}</select>`;
+  H(pageH('Comptabilité SYSCOHADA',_exSel+'<button class="btn-g btn-sm" onclick="fecExport()">⬇️ Export FEC</button> <button class="btn-b" onclick="ecritureModal()">+ Écriture manuelle</button>')+`
    <div class="tabs">
     <div class="tab on" onclick="tabCompta('journal',this)">Journal</div>
     <div class="tab" onclick="tabCompta('grandlivre',this)">Grand livre</div>
@@ -4633,7 +4648,7 @@ PAGES.compta=async()=>{
 };
 function tabCompta(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');tabComptaRender(t);}
 async function tabComptaRender(t){const box=document.getElementById('compta-body');
-  if(t==='journal'){const ecs=(await dbAll('ecritures')).sort((a,b)=>b.id<a.id?-1:1).slice(0,60);
+  if(t==='journal'){const ecs=(await ecrituresVue()).sort((a,b)=>b.id<a.id?-1:1).slice(0,60);
     box.innerHTML=`<div class="card"><table><tr><th>N°</th><th>Date</th><th>Jrnl</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th class="right">Débit</th><th class="right">Crédit</th><th></th></tr>
      ${ecs.flatMap(e=>e.lignes.map((l,i)=>`<tr>
       <td class="sm">${i===0?esc(e.numero||''):''}</td>
@@ -4689,21 +4704,36 @@ async function renderExercices(box){
   const exs=(await dbAll('exercices')).sort((a,b)=>b.annee-a.annee);
   const dernier=exs[0];const prochain=dernier?dernier.annee+1:new Date().getFullYear();
   box.innerHTML=`<div class="card"><div class="card-h">Exercices comptables</div>
-   <table><tr><th>Exercice</th><th>Période</th><th>Statut</th><th></th></tr>
+   <table><tr><th>Exercice</th><th>Période</th><th>Statut</th><th class="right">Résultat net</th><th></th></tr>
    ${exs.map(e=>`<tr><td class="bold">${e.annee}</td><td>${fmtD(e.debut)} → ${fmtD(e.fin)}</td>
     <td>${e.actif?'<span class="tag t-bleu">Actif</span> ':''}${e.cloture?'<span class="tag t-rouge">Clôturé</span>':'<span class="tag t-vert">Ouvert</span>'}</td>
-    <td>${!e.cloture?`<button class="btn-r btn-sm" onclick="cloturerExercice('${e.id}')">Clôturer</button>`:
+    <td class="right ${e.resultat<0?'txt-r':(e.resultat>0?'txt-v':'')}">${e.resultat!=null?FCFA(e.resultat):'—'}</td>
+    <td><button class="btn-g btn-sm" onclick="EX_VIEW='${e.id}';go('compta')">Consulter</button>
+      ${!e.cloture?`<button class="btn-r btn-sm" onclick="cloturerExercice('${e.id}')">Clôturer</button>`:
       `<button class="btn-g btn-sm" onclick="reouvrirExercice('${e.id}')">Rouvrir</button>`}</td></tr>`).join('')
-   ||'<tr><td colspan=4 class="empty">Aucun exercice</td></tr>'}</table>
+   ||'<tr><td colspan=5 class="empty">Aucun exercice</td></tr>'}</table>
    <p class="sm txt-m" style="margin-top:10px">Clôturer un exercice verrouille définitivement la saisie, la modification et l\u2019extourne d\u2019écritures sur cette période. Ouvrez le nouvel exercice avant de clôturer l\u2019ancien pour ne pas interrompre la saisie quotidienne.</p>
    <button class="btn-b btn-sm" onclick="ouvrirNouvelExercice()" style="margin-top:8px">+ Ouvrir l\u2019exercice ${prochain}</button>
    </div>`;
 }
 async function cloturerExercice(id){const e=await dbGet('exercices',id);if(!e)return;
-  confirmAction('Clôturer l\u2019exercice '+e.annee+' ? Plus aucune écriture ne pourra être créée, modifiée ou extournée sur cette période une fois clôturée. Assurez-vous d\u2019avoir ouvert l\u2019exercice suivant.','Clôturer',
-   `async()=>{const e=await dbGet('exercices','${id}');e.cloture=true;await dbPut('exercices',e);
-     await logAudit('cloture_exercice','exercices','${id}','Clôture exercice '+e.annee);
-     toast('Exercice '+e.annee+' clôturé');go('compta')}`);}
+  confirmAction('Clôturer l\u2019exercice '+e.annee+' ? Une écriture de détermination du résultat sera générée (comptes 6 et 7 virés au compte 131), puis la période sera verrouillée.','Clôturer & déterminer le résultat',
+   `doCloturerExercice('${id}')`);}
+async function doCloturerExercice(id){const e=await dbGet('exercices',id);if(!e)return;
+  const all=await dbAll('ecritures');
+  const ecs=all.filter(x=>x.exercice===id||(!x.exercice&&x.date>=e.debut&&x.date<=e.fin));
+  const sold={};ecs.forEach(x=>x.lignes.forEach(l=>{sold[l.compte]=(sold[l.compte]||0)+(l.debit||0)-(l.credit||0);}));
+  const lignes=[];let res=0;
+  for(const num in sold){const s=sold[num];const cl=String(num)[0];if(Math.abs(s)<1)continue;
+    if(cl==='6'){lignes.push({compte:num,debit:0,credit:Math.round(s)});res-=s;}
+    else if(cl==='7'||cl==='8'){lignes.push({compte:num,debit:Math.round(-s),credit:0});res-=s;}}
+  if(lignes.length){await ensureCompte('131','Résultat net de l\u2019exercice','passif');
+    if(res>=0)lignes.push({compte:'131',debit:0,credit:Math.round(res)});
+    else lignes.push({compte:'131',debit:Math.round(-res),credit:0});
+    await ecrireEx(id,'CL',e.fin,'Détermination du résultat '+e.annee,lignes,'CLOTURE-'+e.annee);}
+  e.cloture=true;e.resultat=Math.round(res);await dbPut('exercices',e);
+  await logAudit('cloture_exercice','exercices',id,'Clôture '+e.annee+' — résultat '+FCFA0(res));
+  toast('Exercice '+e.annee+' clôturé — résultat '+FCFA(res));go('compta');}
 async function reouvrirExercice(id){const e=await dbGet('exercices',id);if(!e)return;
   confirmAction('Rouvrir l\u2019exercice '+e.annee+' ? À réserver aux corrections exceptionnelles validées par votre expert-comptable — chaque réouverture est tracée dans l\u2019audit.','Rouvrir',
    `async()=>{const e=await dbGet('exercices','${id}');e.cloture=false;await dbPut('exercices',e);
@@ -4715,8 +4745,19 @@ async function ouvrirNouvelExercice(){const exs=await dbAll('exercices');
   for(const e of exs){if(e.actif){e.actif=false;await dbPut('exercices',e);}}
   const ne={id:'ex'+an,annee:an,debut:an+'-01-01',fin:an+'-12-31',cloture:false,actif:true};
   await dbPut('exercices',ne);
-  await logAudit('ouverture_exercice','exercices',ne.id,'Ouverture exercice '+an);
-  toast('Exercice '+an+' ouvert et activé');go('compta');
+  if(last){const all=await dbAll('ecritures');
+    const ecs=all.filter(x=>x.exercice===last.id||(!x.exercice&&x.date>=last.debut&&x.date<=last.fin));
+    const sold={};let res=0;
+    ecs.forEach(x=>x.lignes.forEach(l=>{const cl=String(l.compte)[0];
+      if('12345'.includes(cl))sold[l.compte]=(sold[l.compte]||0)+(l.debit||0)-(l.credit||0);
+      else if(cl==='6'||cl==='7'||cl==='8')res-=(l.debit||0)-(l.credit||0);}));
+    const lignes=[];for(const num in sold){const s=sold[num];if(Math.abs(s)<1)continue;
+      if(s>0)lignes.push({compte:num,debit:Math.round(s),credit:0});else lignes.push({compte:num,debit:0,credit:Math.round(-s)});}
+    if(Math.abs(res)>=1){await ensureCompte('131','Résultat net de l\u2019exercice','passif');
+      if(res>0)lignes.push({compte:'131',debit:0,credit:Math.round(res)});else lignes.push({compte:'131',debit:Math.round(-res),credit:0});}
+    if(lignes.length)await ecrireEx(ne.id,'AN',ne.debut,'À-nouveaux '+an+' (report '+last.annee+')',lignes,'AN-'+an);}
+  await logAudit('ouverture_exercice','exercices',ne.id,'Ouverture '+an+' + à-nouveaux');
+  toast('Exercice '+an+' ouvert — à-nouveaux reportés');go('compta');
 }
 async function renderAudit(box){
   const logs=(await dbAll('audit')).sort((a,b)=>b.date<a.date?-1:1).slice(0,200);
@@ -7568,7 +7609,7 @@ async function togglePointage(key){const id=RAP_CPT+'|'+key;const ex=await dbGet
   await dbPut('pointages',{id,pointe:!(ex&&ex.pointe)});renderRappro(document.getElementById('compta-body'));}
 async function saveReleve(){await dbPut('rapprochements',{id:RAP_CPT,soldeReleve:num('rap-solde'),dateReleve:val('rap-date')});
   toast('Relevé enregistré');renderRappro(document.getElementById('compta-body'));}
-async function fecExport(){const ecs=(await dbAll('ecritures')).sort((a,b)=>a.date<b.date?-1:1);
+async function fecExport(){const ecs=(await ecrituresVue()).sort((a,b)=>a.date<b.date?-1:1);
   let lines=['JournalCode|EcritureNum|EcritureDate|CompteNum|Libelle|Debit|Credit'];
   ecs.forEach((e,n)=>e.lignes.forEach(l=>{lines.push([e.journal||'OD',e.numero||e.piece||('E'+(n+1)),
     (e.date||'').replace(/-/g,''),l.compte,(e.libelle||'').replace(/[|\n]/g,' '),l.debit||0,l.credit||0].join('|'));}));
