@@ -3822,80 +3822,175 @@ async function tabRHRender(t){const box=document.getElementById('rh-body');const
   }else if(t==='decla'){rhDeclarations(box);}
 }
 async function setPresence(empId,statut){await dbPut('presences',{id:today()+'-'+empId,empId,date:today(),statut});toast('Pointage enregistré');}
-async function editEmploye(id){const e=id?await dbGet('employes',id):{etp:1,actif:true,role:'commercial',zone:'Abidjan'};
+async function editEmploye(id){const e=id?await dbGet('employes',id):{etp:1,actif:true,role:'commercial',zone:'Abidjan',partsIGR:1,dateEntree:today(),primeTransport:30000};
   modal(id?'Modifier employé':'Nouvel employé',`
-   <div class="fld"><label>Nom</label><input id="e-nom" value="${esc(e.nom||'')}"></div>
-   <div class="row"><div class="fld f"><label>Fonction</label><input id="e-fct" value="${esc(e.fonction||'')}"></div>
-   <div class="fld f"><label>Rôle système</label><select id="e-role">
-     ${['direction','compta','commercial','magasin','admin','securite'].map(r=>`<option ${e.role===r?'selected':''}>${r}</option>`).join('')}</select></div></div>
-   <div class="row"><div class="fld f"><label>Salaire brut/mois</label><input id="e-brut" type="number" value="${e.brut||0}"></div>
-   <div class="fld f"><label>ETP</label><input id="e-etp" type="number" step="0.5" value="${e.etp||1}"></div>
-   <div class="fld f"><label>Zone</label><select id="e-zone">${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo'].map(z=>`<option ${e.zone===z?'selected':''}>${z}</option>`).join('')}</select></div></div>
-   <div class="fld"><label>Commission 2.5% sur CA</label><select id="e-com"><option value="1" ${e.commission?'selected':''}>Oui (commercial)</option><option value="0" ${!e.commission?'selected':''}>Non</option></select></div>
-   <div class="fld"><label>Matricule CNPS (pour DISA/DASC)</label><input id="e-matcnps" value="${esc(e.matriculeCnps||'')}" placeholder="N° immatriculation salarié"></div>`,
-   `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer ?','async()=>{await dbDel(\\'employes\\',\\'${id}\\');go(\\'rh\\')}')">Supprimer</button>`:''}
+   <div class="row"><div class="fld f"><label>Nom & prénoms</label><input id="e-nom" value="${esc(e.nom||'')}"></div>
+    <div class="fld f"><label>Matricule</label><input id="e-mat" value="${esc(e.matricule||'')}" placeholder="002"></div>
+    <div class="fld f"><label>N° CNPS salarié</label><input id="e-matcnps" value="${esc(e.matriculeCnps||'')}" placeholder="202400042266"></div></div>
+   <div class="row"><div class="fld f"><label>Direction</label><input id="e-dir" value="${esc(e.direction||'')}" placeholder="Commerciale"></div>
+    <div class="fld f"><label>Service</label><input id="e-serv" value="${esc(e.service||'')}" placeholder="Commercial & Marketing"></div>
+    <div class="fld f"><label>Emploi / fonction</label><input id="e-fct" value="${esc(e.fonction||'')}"></div></div>
+   <div class="row"><div class="fld f"><label>Catégorie</label><input id="e-cat" value="${esc(e.categorie||'')}" placeholder="9A"></div>
+    <div class="fld f"><label>Parts IGR</label><select id="e-parts">${['1','1.5','2','2.5','3','3.5','4','4.5','5'].map(x=>`<option ${String(e.partsIGR)===x?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Date d'entrée</label><input id="e-entree" type="date" value="${e.dateEntree||e.embauche||today()}"></div>
+    <div class="fld f"><label>Rôle système</label><select id="e-role">${['direction','compta','commercial','magasin','admin','securite'].map(r=>`<option ${e.role===r?'selected':''}>${r}</option>`).join('')}</select></div></div>
+   <div class="row"><div class="fld f"><label>Salaire catégoriel</label><input id="e-categ" type="number" value="${e.salCateg!=null?e.salCateg:(e.brut||0)}"></div>
+    <div class="fld f"><label>Sursalaire</label><input id="e-surs" type="number" value="${e.sursalaire||0}"></div>
+    <div class="fld f"><label>Prime transport (non imposable)</label><input id="e-trans" type="number" value="${e.primeTransport!=null?e.primeTransport:30000}"></div>
+    <div class="fld f"><label>ETP</label><input id="e-etp" type="number" step="0.5" value="${e.etp||1}"></div></div>
+   <div class="row"><div class="fld f"><label>Zone</label><select id="e-zone">${['Abidjan','Soubré','San-Pédro','Daloa','Korhogo'].map(z=>`<option ${e.zone===z?'selected':''}>${z}</option>`).join('')}</select></div>
+    <div class="fld f"><label>Banque / mode paie</label><input id="e-banque" value="${esc(e.banque||'Virement')}"></div>
+    <div class="fld f"><label>ITS manuel (option)</label><input id="e-its" type="number" value="${e.itsManuel!=null?e.itsManuel:''}" placeholder="auto (barème)"></div>
+    <div class="fld f"><label>Commission 2.5% CA</label><select id="e-com"><option value="1" ${e.commission?'selected':''}>Oui</option><option value="0" ${!e.commission?'selected':''}>Non</option></select></div></div>`,
+   `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer cet employé ?','async()=>{await dbDel(\\'employes\\',\\'${id}\\');go(\\'rh\\')}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-p" onclick="saveEmploye('${id||''}')">Enregistrer</button>`);
+    <button class="btn-p" onclick="saveEmploye('${id||''}')">Enregistrer</button>`,true);
 }
-async function saveEmploye(id){const e=id?await dbGet('employes',id):{id:uid(),actif:true,embauche:today()};
-  Object.assign(e,{nom:val('e-nom'),fonction:val('e-fct'),role:val('e-role'),brut:num('e-brut'),
-    etp:num('e-etp'),zone:val('e-zone'),commission:val('e-com')==='1',matriculeCnps:val('e-matcnps')});
+async function saveEmploye(id){const e=id?await dbGet('employes',id):{id:uid(),actif:true};
+  const salCateg=num('e-categ'),sursalaire=num('e-surs');
+  Object.assign(e,{nom:val('e-nom'),matricule:val('e-mat'),matriculeCnps:val('e-matcnps'),
+    direction:val('e-dir'),service:val('e-serv'),fonction:val('e-fct'),categorie:val('e-cat'),
+    partsIGR:parseFloat(val('e-parts'))||1,dateEntree:val('e-entree'),role:val('e-role'),
+    salCateg,sursalaire,primeTransport:num('e-trans'),etp:num('e-etp'),zone:val('e-zone'),
+    banque:val('e-banque'),itsManuel:val('e-its'),brut:salCateg+sursalaire,
+    commission:val('e-com')==='1'});
+  if(!e.embauche)e.embauche=e.dateEntree;
   await dbPut('employes',e);closeModal();toast('Employé enregistré');go('rh');}
+
+/* ===== MOTEUR DE PAIE — CÔTE D'IVOIRE ===== */
+function ancienneteAns(e){const d=e.dateEntree||e.embauche;if(!d)return 0;
+  return Math.max(0,Math.floor((Date.now()-new Date(d).getTime())/(365.25*864e5)));}
+function tauxAnciennete(ans){if(ans<2)return 0;return Math.min(2+(ans-2),25);}
+function calcITS(brutFiscal,parts){let its=0,prev=0;
+  const tr=[[75000,0],[240000,0.16],[800000,0.21],[2400000,0.24],[8000000,0.28],[Infinity,0.32]];
+  for(const [plaf,t] of tr){if(brutFiscal>prev){its+=(Math.min(brutFiscal,plaf)-prev)*t;prev=plaf;}else break;}
+  const red={'1':0,'1.5':0.10,'2':0.15,'2.5':0.20,'3':0.25,'3.5':0.30,'4':0.35,'4.5':0.40,'5':0.45}[String(parts||1)]||0;
+  return Math.round(its*(1-red));}
 function calcPaie(emp,p,commission){
-  const brut=emp.brut*emp.etp;const cotisSal=brut*0.063; // CNPS part salariale ~6.3%
-  const its=brut*p.tauxITS/100;
-  const net=brut-cotisSal-its+(commission||0);
-  const chargesPatr=brut*p.tauxCNPS/100;
-  return {brut,cotisSal:Math.round(cotisSal),its:Math.round(its),commission:commission||0,
-    net:Math.round(net),chargesPatr:Math.round(chargesPatr)};
+  const etp=emp.etp||1;
+  const salCateg=Math.round((emp.salCateg!=null?emp.salCateg:(emp.brut||0))*etp);
+  const sursalaire=Math.round((emp.sursalaire||0)*etp);
+  const ans=ancienneteAns(emp);const tauxAnc=tauxAnciennete(ans);
+  const primeAnc=Math.round(salCateg*tauxAnc/100);
+  const comm=Math.round(commission||0);
+  const brut=salCateg+sursalaire+primeAnc+comm;
+  const transportExo=Math.min(emp.primeTransport!=null?emp.primeTransport:(p.primeTransportExo||30000),p.primeTransportExo||30000);
+  const plafRet=p.cnpsPlafond||1647315;const plafSoc=p.plafondSoc||75000;
+  const parts=emp.partsIGR||1;
+  const cnpsSal=Math.round(Math.min(brut,plafRet)*((p.tauxCnpsSal||6.3)/100));
+  const its=(emp.itsManuel!=null&&emp.itsManuel!=='')?Math.round(+emp.itsManuel):calcITS(brut,parts);
+  const cmuSal=p.cmu||500;
+  const cnpsPatRet=Math.round(Math.min(brut,plafRet)*((p.tauxCNPS||7.7)/100));
+  const cnpsAT=Math.round(Math.min(brut,plafSoc)*((p.tauxAT||5)/100));
+  const cnpsPF=Math.round(Math.min(brut,plafSoc)*((p.tauxPF||5.75)/100));
+  const fdfpTA=Math.round(brut*((p.tauxTAP!=null?p.tauxTAP:0.4)/100));
+  const fdfpTFC=Math.round(brut*((p.tauxTFPC!=null?p.tauxTFPC:1.2)/100));
+  const contribEmp=Math.round(brut*((p.tauxContribEmp!=null?p.tauxContribEmp:1.2)/100));
+  const cmuPat=p.cmu||500;
+  const chargesPatr=cnpsPatRet+cnpsAT+cnpsPF+fdfpTA+fdfpTFC+contribEmp+cmuPat;
+  const net=brut-cnpsSal-its-cmuSal+transportExo;
+  return {salCateg,sursalaire,primeAnc,tauxAnc,ans,commission:comm,brut,transportExo,parts,
+    cnpsSal,cotisSal:cnpsSal,its,cmuSal,cnpsPatRet,cnpsAT,cnpsPF,fdfpTA,fdfpTFC,contribEmp,cmuPat,
+    chargesPatr,net:Math.round(net)};
 }
+async function commissionEmp(id){const facs=await dbAll('factures');let comm=0;
+  for(const f of facs){if(f.statut==='annulee')continue;const cmd=f.cmdId?await dbGet('cmdClient',f.cmdId):null;
+    if(cmd&&cmd.commercialId===id)comm+=f.totalHT*0.025;}return Math.round(comm);}
 async function genBulletin(id){const e=await dbGet('employes',id);const p=await dbGet('parametres','main');
-  let comm=0;
-  if(e.commission){const facs=await dbAll('factures');
-    for(const f of facs){if(f.statut==='annulee')continue;const cmd=f.cmdId?await dbGet('cmdClient',f.cmdId):null;
-      if(cmd?.commercialId===id)comm+=f.totalHT*0.025;}}
-  const c=calcPaie(e,p,Math.round(comm));
-  modal('Bulletin — '+e.nom,`
+  const comm=e.commission?await commissionEmp(id):0;const c=calcPaie(e,p,comm);
+  modal('Bulletin de paie — '+e.nom,`
    <table>
-    <tr><td>Salaire brut (ETP ${e.etp})</td><td class="right bold">${FCFA(c.brut)}</td></tr>
-    ${comm?`<tr><td>Commission 2.5% CA</td><td class="right txt-v">+ ${FCFA(c.commission)}</td></tr>`:''}
-    <tr><td>Cotisation sociale salariale (6.3%)</td><td class="right txt-r">- ${FCFA(c.cotisSal)}</td></tr>
-    <tr><td>ITS (${p.tauxITS}%)</td><td class="right txt-r">- ${FCFA(c.its)}</td></tr>
+    <tr><td>Salaire catégoriel</td><td class="right">${FCFA(c.salCateg)}</td></tr>
+    <tr><td>Sursalaire</td><td class="right">${FCFA(c.sursalaire)}</td></tr>
+    ${c.primeAnc?`<tr><td>Prime d'ancienneté (${c.tauxAnc}% • ${c.ans} ans)</td><td class="right">${FCFA(c.primeAnc)}</td></tr>`:''}
+    ${c.commission?`<tr><td>Commission 2,5% CA</td><td class="right txt-v">+ ${FCFA(c.commission)}</td></tr>`:''}
+    <tr style="background:#eef6ff"><td class="bold">BRUT IMPOSABLE</td><td class="right bold">${FCFA(c.brut)}</td></tr>
+    <tr><td>CNPS retraite (6,3%)</td><td class="right txt-r">- ${FCFA(c.cnpsSal)}</td></tr>
+    <tr><td>ITS (barème, ${c.parts} part·s)</td><td class="right txt-r">- ${FCFA(c.its)}</td></tr>
+    <tr><td>CMU</td><td class="right txt-r">- ${FCFA(c.cmuSal)}</td></tr>
+    <tr><td>Prime de transport (non imposable)</td><td class="right txt-v">+ ${FCFA(c.transportExo)}</td></tr>
     <tr style="background:#dcfce7"><td class="bold">NET À PAYER</td><td class="right bold">${FCFA(c.net)}</td></tr>
-    <tr><td class="txt-m sm">Charges patronales (${p.tauxCNPS}%)</td><td class="right txt-m sm">${FCFA(c.chargesPatr)}</td></tr>
-   </table>`,
+   </table>
+   <div class="card-h" style="margin-top:10px;font-size:13px">Charges patronales</div>
+   <table class="sm"><tr><td>CNPS retraite 7,7%</td><td class="right">${FCFA(c.cnpsPatRet)}</td></tr>
+    <tr><td>CNPS accident travail</td><td class="right">${FCFA(c.cnpsAT)}</td></tr>
+    <tr><td>CNPS prestations familiales</td><td class="right">${FCFA(c.cnpsPF)}</td></tr>
+    <tr><td>FDFP (apprentissage + formation)</td><td class="right">${FCFA(c.fdfpTA+c.fdfpTFC)}</td></tr>
+    <tr><td>Contribution employeur (1,2%)</td><td class="right">${FCFA(c.contribEmp)}</td></tr>
+    <tr><td>CMU employeur</td><td class="right">${FCFA(c.cmuPat)}</td></tr>
+    <tr style="background:#fef3c7"><td class="bold">Total charges patronales</td><td class="right bold">${FCFA(c.chargesPatr)}</td></tr></table>
+   <p class="sm txt-m">Coût total employeur : <b>${FCFA(c.brut+c.transportExo+c.chargesPatr)}</b>. ITS = estimation barème, ajustable (champ ITS manuel).</p>`,
    `<button class="btn-g" onclick="closeModal()">Fermer</button>
-    <button class="btn-p" onclick="validerBulletin('${id}',${c.brut},${c.cotisSal},${c.net},${c.chargesPatr},${c.commission})">Valider + comptabiliser</button>`);
+    <button class="btn-p" onclick="validerBulletin('${id}',${comm})">Valider + comptabiliser</button>`,true);
 }
-async function validerBulletin(id,brut,cotisSal,net,chargesPatr,commission){
-  const e=await dbGet('employes',id);const periode=today().slice(0,7);
-  await dbPut('paies',{id:uid(),empId:id,nom:e.nom,periode,brut,cotisSal,net,chargesPatr,commission,date:today()});
-  // écriture paie : 661 D (brut+patr) / 421 C (net) / 431 C (cotis) / 4471 C (its)
-  await ecrire('PAIE',today(),'Paie '+periode+' — '+e.nom,[
-    {compte:'661',debit:brut,credit:0},
-    {compte:'664',debit:chargesPatr,credit:0},
-    {compte:'421',debit:0,credit:net},
-    {compte:'431',debit:0,credit:cotisSal+chargesPatr}],periode);
-  closeModal();toast('Bulletin comptabilisé');go('rh');
+async function postEcriturePaie(e,c,periode){
+  await ensureCompte('661','Rémunérations personnel','charge');
+  await ensureCompte('664','Charges sociales patronales','charge');
+  await ensureCompte('421','Personnel, rémunérations dues','passif');
+  await ensureCompte('431','Sécurité sociale (CNPS)','passif');
+  await ensureCompte('4471','ITS / impôts sur salaires','passif');
+  await ensureCompte('4474','FDFP','passif');
+  await ensureCompte('438','CMU / organismes sociaux','passif');
+  await ensureCompte('447','État, contribution employeur','passif');
+  const lignes=[
+    {compte:'661',debit:c.brut+c.transportExo,credit:0},
+    {compte:'664',debit:c.chargesPatr,credit:0},
+    {compte:'421',debit:0,credit:c.net},
+    {compte:'431',debit:0,credit:c.cnpsSal+c.cnpsPatRet+c.cnpsAT+c.cnpsPF},
+    {compte:'4471',debit:0,credit:c.its},
+    {compte:'4474',debit:0,credit:c.fdfpTA+c.fdfpTFC},
+    {compte:'438',debit:0,credit:c.cmuSal+c.cmuPat},
+    {compte:'447',debit:0,credit:c.contribEmp}];
+  await ecrire('PAIE',today(),'Paie '+periode+' — '+e.nom,lignes.filter(l=>l.debit||l.credit),'PAIE-'+periode+'-'+(e.matricule||e.id.slice(-4)));
+}
+async function validerBulletin(id,commission){
+  const e=await dbGet('employes',id);const p=await dbGet('parametres','main');
+  const c=calcPaie(e,p,commission||0);const periode=today().slice(0,7);
+  await dbPut('paies',Object.assign({id:uid(),empId:id,nom:e.nom,periode,date:today()},c));
+  await postEcriturePaie(e,c,periode);
+  closeModal();toast('Bulletin comptabilisé (écriture détaillée SYSCOHADA)');go('rh');
 }
 async function genPaieGlobale(){const emps=(await dbAll('employes')).filter(e=>e.actif);const p=await dbGet('parametres','main');
-  const periode=today().slice(0,7);const facs=await dbAll('factures');
-  for(const e of emps){let comm=0;
-    if(e.commission)for(const f of facs){if(f.statut==='annulee')continue;
-      const cmd=f.cmdId?await dbGet('cmdClient',f.cmdId):null;if(cmd?.commercialId===e.id)comm+=f.totalHT*0.025;}
-    const c=calcPaie(e,p,Math.round(comm));
-    await dbPut('paies',{id:uid(),empId:e.id,nom:e.nom,periode,brut:c.brut,cotisSal:c.cotisSal,
-      net:c.net,chargesPatr:c.chargesPatr,commission:c.commission,date:today()});}
-  toast('Paie du mois générée ('+emps.length+' bulletins)');go('rh');
+  const periode=today().slice(0,7);
+  for(const e of emps){const comm=e.commission?await commissionEmp(e.id):0;const c=calcPaie(e,p,comm);
+    await dbPut('paies',Object.assign({id:uid(),empId:e.id,nom:e.nom,periode,date:today()},c));
+    await postEcriturePaie(e,c,periode);}
+  toast('Paie du mois générée + comptabilisée ('+emps.length+' bulletins)');go('rh');
 }
-async function imprimerBulletin(id){const p=await dbGet('paies',id);const param=await dbGet('parametres','main');
-  const corps=`<h2 style="color:#1f7a3d">${esc(param.nom)}</h2><h3>BULLETIN DE PAIE — ${esc(p.periode)}</h3>
-   <p><b>${esc(p.nom)}</b></p>
-   <table><tr><td>Salaire brut</td><td class="r">${FCFA(p.brut)}</td></tr>
-   ${p.commission?`<tr><td>Commission</td><td class="r">+ ${FCFA(p.commission)}</td></tr>`:''}
-   <tr><td>Cotisation salariale</td><td class="r">- ${FCFA(p.cotisSal)}</td></tr>
-   <tr><td><b>NET À PAYER</b></td><td class="r"><b>${FCFA(p.net)}</b></td></tr></table>`;
-  apercu('Bulletin '+p.nom,corps,'table{width:100%;border-collapse:collapse}td{padding:6px;border-bottom:1px solid #eee}.r{text-align:right}');
+async function imprimerBulletin(id){const b=await dbGet('paies',id);const param=await dbGet('parametres','main');
+  const e=await dbGet('employes',b.empId)||{};const plafSoc=param.plafondSoc||75000;
+  const per=new Date((b.periode||today())+'-01').toLocaleDateString('fr-FR',{month:'long',year:'numeric'}).toUpperCase();
+  const L=(d,base,gain,rs,rp)=>`<tr><td>${d}</td><td class="r">${base?FCFA0(base):''}</td><td class="r">${gain?FCFA0(gain):''}</td><td class="r">${rs?FCFA0(rs):''}</td><td class="r">${rp?FCFA0(rp):''}</td></tr>`;
+  const corps=`<div style="display:flex;justify-content:space-between;align-items:flex-start">
+     <div><b style="color:#1f7a3d;font-size:16px">${esc(param.nom)}</b>
+       <div class="sm">${esc(param.siege||'')}<br>RCCM ${esc(param.rccm||'')}${param.cnpsNum?' • N°CNPS '+esc(param.cnpsNum):''}</div></div>
+     <div style="text-align:right"><b style="font-size:15px">BULLETIN DE PAIE</b><br>${per}</div></div><hr>
+   <table class="info"><tr><td>Matricule: <b>${esc(e.matricule||b.empId.slice(-4))}</b></td><td>N° CNPS: <b>${esc(e.matriculeCnps||'—')}</b></td><td>Catégorie: <b>${esc(e.categorie||'—')}</b></td></tr>
+    <tr><td>Direction: ${esc(e.direction||'—')}</td><td>Service: ${esc(e.service||'—')}</td><td>Parts IGR: <b>${b.parts||1}</b></td></tr>
+    <tr><td>Salarié: <b>${esc(b.nom)}</b></td><td>Emploi: ${esc(e.fonction||'—')}</td><td>Ancienneté: ${b.ans||0} an(s)</td></tr></table>
+   <table class="b"><tr><th>Désignation</th><th class="r">Base</th><th class="r">Gains</th><th class="r">Ret. salariale</th><th class="r">Ch. patronale</th></tr>
+    ${L('Salaire catégoriel',b.salCateg,b.salCateg)}
+    ${L('Sursalaire',b.sursalaire,b.sursalaire)}
+    ${b.primeAnc?L("Prime d'ancienneté ("+b.tauxAnc+"%)",b.salCateg,b.primeAnc):''}
+    ${b.commission?L('Commission 2,5% CA','',b.commission):''}
+    <tr class="sub"><td><b>BRUT</b></td><td></td><td class="r"><b>${FCFA0(b.brut)}</b></td><td></td><td></td></tr>
+    ${L('CNPS régime de retraite',b.brut,'',b.cnpsSal,b.cnpsPatRet)}
+    ${L('CNPS accident du travail',plafSoc,'','',b.cnpsAT)}
+    ${L('CNPS prestations familiales',plafSoc,'','',b.cnpsPF)}
+    ${L('ITS impôt sur salaires',b.brut,'',b.its,b.contribEmp)}
+    ${L('FDFP (apprentissage + formation)',b.brut,'','',b.fdfpTA+b.fdfpTFC)}
+    ${L('CMU',' ','',b.cmuSal,b.cmuPat)}
+    ${L('Prime de transport (non imposable)','',b.transportExo)}
+    <tr class="tot"><td><b>TOTAUX</b></td><td></td><td class="r"><b>${FCFA0(b.brut+b.transportExo)}</b></td><td class="r"><b>${FCFA0(b.cnpsSal+b.its+b.cmuSal)}</b></td><td class="r"><b>${FCFA0(b.chargesPatr)}</b></td></tr>
+   </table>
+   <table class="net"><tr><td><b>NET À PAYER</b></td><td class="r"><b>${FCFA0(b.net)} FCFA</b></td></tr></table>
+   <p class="sm" style="color:#555;margin-top:10px">Coût total employeur : ${FCFA0(b.brut+b.transportExo+b.chargesPatr)} FCFA • Période ${esc(b.periode)} • Paie le ${fmtD(b.date)}.</p>
+   <p class="sm" style="color:#888">Conservez ce bulletin sans limitation de durée.</p>`;
+  apercu('Bulletin '+b.nom,corps,
+   `.info{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px}.info td{padding:3px 6px;border:1px solid #eee}
+    .b{width:100%;border-collapse:collapse;margin-top:6px}.b td,.b th{border:1px solid #ccc;padding:5px 6px}.b th{background:#f1f5f9}
+    .r{text-align:right}.b .sub td{background:#eef6ff}.b .tot td{background:#f1f5f9}
+    .net{width:100%;border-collapse:collapse;margin-top:6px}.net td{border:2px solid #1f7a3d;padding:8px;background:#dcfce7;font-size:14px}`);
 }
 
 /* ====== RH — DÉCLARATIONS ITS / CNPS / ÉTAT 301-302 / FDFP / DISA-DASC ====== */
@@ -4137,6 +4232,13 @@ PAGES.parametres=async()=>{
      <div class="fld f"><label>Plafond mensuel CNPS (FCFA)</label><input id="pa-cnpsplaf" type="number" value="${p.cnpsPlafond||1647315}"></div>
      <div class="fld f"><label>FDFP — Taxe apprentissage %</label><input id="pa-tap" type="number" step="0.1" value="${p.tauxTAP!=null?p.tauxTAP:0.4}"></div>
      <div class="fld f"><label>FDFP — Taxe formation continue %</label><input id="pa-tfpc" type="number" step="0.1" value="${p.tauxTFPC!=null?p.tauxTFPC:1.2}"></div></div>
+    <div class="row"><div class="fld f"><label>CNPS retraite salarial %</label><input id="pa-cnpssal" type="number" step="0.1" value="${p.tauxCnpsSal!=null?p.tauxCnpsSal:6.3}"></div>
+     <div class="fld f"><label>CNPS accident travail %</label><input id="pa-at" type="number" step="0.1" value="${p.tauxAT!=null?p.tauxAT:5}"></div>
+     <div class="fld f"><label>CNPS prest. familiales %</label><input id="pa-pf" type="number" step="0.01" value="${p.tauxPF!=null?p.tauxPF:5.75}"></div>
+     <div class="fld f"><label>Plafond social PF/AT</label><input id="pa-plafsoc" type="number" value="${p.plafondSoc||75000}"></div></div>
+    <div class="row"><div class="fld f"><label>Contribution employeur %</label><input id="pa-contrib" type="number" step="0.1" value="${p.tauxContribEmp!=null?p.tauxContribEmp:1.2}"></div>
+     <div class="fld f"><label>CMU (forfait/mois)</label><input id="pa-cmu" type="number" value="${p.cmu!=null?p.cmu:500}"></div>
+     <div class="fld f"><label>Prime transport exonérée max</label><input id="pa-transport" type="number" value="${p.primeTransportExo!=null?p.primeTransportExo:30000}"></div></div>
     <button class="btn-p" onclick="saveParam()">Enregistrer</button></div>
    <div class="row">
     <div class="card f"><div class="card-h">👤 Utilisateurs</div>
@@ -4164,7 +4266,9 @@ async function saveParam(){const p=await dbGet('parametres','main');
     ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap'),
     teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots'),
     cnpsNum:val('pa-cnpsnum'),cnpsPlafond:num('pa-cnpsplaf')||1647315,
-    tauxTAP:num('pa-tap'),tauxTFPC:num('pa-tfpc')});
+    tauxTAP:num('pa-tap'),tauxTFPC:num('pa-tfpc'),
+    tauxCnpsSal:num('pa-cnpssal'),tauxAT:num('pa-at'),tauxPF:num('pa-pf'),plafondSoc:num('pa-plafsoc')||75000,
+    tauxContribEmp:num('pa-contrib'),cmu:num('pa-cmu'),primeTransportExo:num('pa-transport')});
   await dbPut('parametres',p);toast('Paramètres enregistrés');}
 async function exportData(){const dump={};for(const s of STORES)dump[s]=await dbAll(s);
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
