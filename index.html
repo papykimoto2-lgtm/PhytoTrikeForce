@@ -4610,7 +4610,9 @@ PAGES.compta=async()=>{
     <div class="tab" onclick="tabCompta('grandlivre',this)">Grand livre</div>
     <div class="tab" onclick="tabCompta('balance',this)">Balance</div>
     <div class="tab" onclick="tabCompta('resultat',this)">Compte de résultat</div>
+    <div class="tab" onclick="tabCompta('sig',this)">SIG</div>
     <div class="tab" onclick="tabCompta('bilan',this)">Bilan</div>
+    <div class="tab" onclick="tabCompta('tva',this)">Déclaration TVA</div>
     <div class="tab" onclick="tabCompta('rappro',this)">Rapprochement bancaire</div>
     <div class="tab" onclick="tabCompta('agee',this)">Balance âgée</div>
     <div class="tab" onclick="tabCompta('exercices',this)">Exercices</div>
@@ -4669,6 +4671,8 @@ async function tabComptaRender(t){const box=document.getElementById('compta-body
   else if(t==='agee'){await renderAgee(box);}
   else if(t==='exercices'){await renderExercices(box);}
   else if(t==='audit'){await renderAudit(box);}
+  else if(t==='sig'){await renderSIG(box);}
+  else if(t==='tva'){await renderTVA(box);}
 }
 async function renderExercices(box){
   const exs=(await dbAll('exercices')).sort((a,b)=>b.annee-a.annee);
@@ -5895,13 +5899,44 @@ function delettrer(id){confirmAction('Délettrer ? Les lignes redeviennent non l
   `async()=>{const l=await dbGet('lettrages','${id}');await dbDel('lettrages','${id}');
     await logAudit('delettrage','lettrages','${id}','Délettrage '+(l?l.code:''));toast('Délettré');
     l&&l.tiersType==='client'?releveTiers(l.tiersId):releveFourn(l&&l.tiersId);}`);}
+async function reglFournModal(cmdId){const c=await dbGet('cmdAchat',cmdId);const f=await dbGet('fournisseurs',c.fournId);
+  const ttc=ttcAchat(c);const paye=(await dbAll('reglFourn')).filter(r=>r.cmdId===cmdId).reduce((a,r)=>a+r.montant,0);
+  const reste=ttc-paye;
+  modal('Règlement fournisseur — '+c.num,`
+   <p class="sm">Fournisseur : <b>${esc(f?.nom||'')}</b><br>TTC reçu ${FCFA(ttc)} • Déjà payé ${FCFA(paye)} • Reste <b class="txt-r">${FCFA(reste)}</b></p>
+   <div class="row"><div class="fld f"><label>Montant</label><input id="rf-mt" type="number" value="${reste>0?reste:0}"></div>
+    <div class="fld f"><label>Date</label><input id="rf-date" type="date" value="${today()}"></div></div>
+   <div class="fld"><label>Moyen de paiement</label><select id="rf-mode" onchange="rfMode()">
+     <option value="571">Espèces (Caisse)</option>
+     <option value="531" selected>Mobile Money</option>
+     <option value="521">Banque / Virement</option></select></div>
+   <div id="rf-momo" style="background:#f8fafc;border:1px solid var(--bord);border-radius:8px;padding:10px;margin-top:6px">
+     <div class="row"><div class="fld f"><label>Opérateur</label><select id="rf-op">
+        <option value="Wave">Wave</option><option value="Orange Money">Orange Money</option>
+        <option value="MTN MoMo">MTN MoMo</option><option value="Moov Money">Moov Money</option></select></div>
+      <div class="fld f"><label>N° transaction</label><input id="rf-ref" placeholder="ex. TXN-998877"></div></div>
+     <div class="row"><div class="fld f"><label>N° payeur (émetteur)</label><input id="rf-tel" placeholder="07 ..."></div>
+      <div class="fld f"><label>Frais MoMo (à notre charge)</label><input id="rf-frais" type="number" value="0"></div></div>
+   </div>`,
+   `<button class="btn-g" onclick="closeModal()">Annuler</button>
+    <button class="btn-p" onclick="saveReglFourn('${cmdId}')">Enregistrer le paiement</button>`);
+}
+function rfMode(){const m=val('rf-mode');const b=document.getElementById('rf-momo');if(b)b.style.display=m==='531'?'block':'none';}
 async function saveReglFourn(cmdId){const c=await dbGet('cmdAchat',cmdId);const mt=num('rf-mt');const mode=val('rf-mode');
   if(mt<=0)return;const date=val('rf-date')||today();
   const four=await dbGet('fournisseurs',c.fournId);
-  const ec=await ecrire('TRE',date,'Règlt fourn. '+c.num,[
-    {compte:four?.compte||'401',debit:mt,credit:0},{compte:mode,debit:0,credit:mt}],c.num);
-  await dbPut('reglFourn',{id:uid(),fournId:c.fournId,cmdId,montant:mt,mode,date,ecritureId:ec.id});
-  closeModal();toast('Règlement fournisseur enregistré');go('appro');
+  const isMomo=mode==='531';
+  const op=isMomo?val('rf-op'):'';const ref=isMomo?val('rf-ref'):'';const tel=isMomo?val('rf-tel'):'';
+  const frais=isMomo?num('rf-frais'):0;
+  let lib='Règlt fourn. '+c.num+(op?(' — '+op+(ref?' #'+ref:'')):'');
+  const lignes=[{compte:four?.compte||'401',debit:mt,credit:0}];
+  if(frais>0){await ensureCompte('6312','Frais Mobile Money / bancaires','charge');
+    lignes.push({compte:'6312',debit:frais,credit:0});}
+  lignes.push({compte:mode,debit:0,credit:mt+frais});
+  const ec=await ecrire('TRE',date,lib,lignes,c.num);
+  await dbPut('reglFourn',{id:uid(),fournId:c.fournId,cmdId,montant:mt,mode,date,
+    operateur:op,refTx:ref,telPayeur:tel,frais,ecritureId:ec.id});
+  closeModal();toast(isMomo?('Paiement '+op+' enregistré'):'Règlement fournisseur enregistré');go('appro');
 }
 async function annulerReglFourn(id){const r=await dbGet('reglFourn',id);
   confirmDel('Annuler ce règlement fournisseur de '+FCFA(r.montant)+' ?',
@@ -7638,6 +7673,96 @@ function majNetStatus(){const e=document.getElementById('netStatus');if(!e)retur
 window.addEventListener('online',majNetStatus);
 window.addEventListener('offline',majNetStatus);
 setTimeout(majNetStatus,0);
+
+/* ====== SOLDES INTERMÉDIAIRES DE GESTION (SIG) — SYSCOHADA ====== */
+async function renderSIG(box){const bal=await balance();
+  const C=p=>bal.filter(b=>String(b.num).startsWith(p)).reduce((a,b)=>a+(b.credit-b.debit),0);
+  const D=p=>bal.filter(b=>String(b.num).startsWith(p)).reduce((a,b)=>a+(b.debit-b.credit),0);
+  const venteM=C('701'), coutM=D('601')+D('603');
+  const margeC=venteM-coutM;
+  const prod=C('702')+C('703')+C('704')+C('705')+C('706')+C('72')+C('73');
+  const access=C('707')+C('708');
+  const consoInt=D('602')+D('604')+D('605')+D('608')+D('61')+D('62');
+  const va=margeC+prod+access-consoInt;
+  const subv=C('71'), impots=D('64'), perso=D('66');
+  const ebe=va+subv-impots-perso;
+  const autreP=C('75')+C('781')+C('791'), autreC=D('65'), dot=D('681')+D('691');
+  const rExpl=ebe+autreP-autreC-dot;
+  const prodFin=C('77')+C('797'), chFin=D('67');
+  const rFin=prodFin-chFin; const rao=rExpl+rFin;
+  const pHAO=C('82')+C('84')+C('86')+C('88'), cHAO=D('81')+D('83')+D('85')+D('87');
+  const rHAO=pHAO-cHAO;
+  const imptR=D('89'); const rNet=rao+rHAO-imptR;
+  const caf=rNet+dot-(C('78')+C('86'));
+  const row=(l,v,sig)=>`<tr ${sig?'style="background:#f1f5f9"':''}><td class="${sig?'bold':''}">${l}</td><td class="right ${sig?'bold':''} ${v<0?'txt-r':''}">${FCFA(v)}</td></tr>`;
+  const det=(l,v)=>`<tr><td class="sm" style="padding-left:18px">${l}</td><td class="right sm">${v>=0?'+ ':'− '}${FCFA(Math.abs(v))}</td></tr>`;
+  box.innerHTML=`<div class="card"><div class="card-h">Soldes Intermédiaires de Gestion — exercice en cours</div>
+   <table style="max-width:620px">
+    ${det('Ventes de marchandises (701)',venteM)}
+    ${det('Coût d\'achat des marchandises vendues (601/603)',-coutM)}
+    ${row('= MARGE COMMERCIALE',margeC,1)}
+    ${det('Production (702-706, 72, 73)',prod)}
+    ${det('Produits accessoires (707/708)',access)}
+    ${det('Consommations intermédiaires (602-62)',-consoInt)}
+    ${row('= VALEUR AJOUTÉE',va,1)}
+    ${det('Subventions d\'exploitation (71)',subv)}
+    ${det('Impôts et taxes (64)',-impots)}
+    ${det('Charges de personnel (66)',-perso)}
+    ${row('= EXCÉDENT BRUT D\'EXPLOITATION (EBE)',ebe,1)}
+    ${det('Autres produits / reprises (75, 781, 791)',autreP)}
+    ${det('Autres charges (65)',-autreC)}
+    ${det('Dotations amortissements & provisions (681/691)',-dot)}
+    ${row('= RÉSULTAT D\'EXPLOITATION',rExpl,1)}
+    ${det('Produits financiers (77, 797)',prodFin)}
+    ${det('Charges financières (67)',-chFin)}
+    ${row('= RÉSULTAT FINANCIER',rFin,1)}
+    ${row('= RÉSULTAT DES ACTIVITÉS ORDINAIRES',rao,1)}
+    ${det('Produits HAO (82, 84, 86, 88)',pHAO)}
+    ${det('Charges HAO (81, 83, 85, 87)',-cHAO)}
+    ${row('= RÉSULTAT HAO',rHAO,1)}
+    ${det('Impôts sur le résultat (89)',-imptR)}
+    ${row('= RÉSULTAT NET',rNet,1)}
+   </table>
+   <div class="kpi vert" style="max-width:300px;margin-top:14px"><div class="lab">Capacité d'autofinancement (CAF)</div><div class="val">${FCFA(caf)}</div></div>
+   <p class="sm txt-m">Cascade SYSCOHADA. Les soldes nuls correspondent à des natures de flux non utilisées par l'activité.</p></div>`;
+}
+
+/* ====== DÉCLARATION & LIQUIDATION DE LA TVA ====== */
+async function renderTVA(box){const bal=await balance();
+  const collectee=bal.filter(b=>String(b.num).startsWith('4431')).reduce((a,b)=>a+(b.credit-b.debit),0);
+  const deductible=bal.filter(b=>String(b.num).startsWith('4452')).reduce((a,b)=>a+(b.debit-b.credit),0);
+  const due=bal.filter(b=>String(b.num).startsWith('4434')).reduce((a,b)=>a+(b.credit-b.debit),0);
+  const credit=bal.filter(b=>String(b.num).startsWith('4449')).reduce((a,b)=>a+(b.debit-b.credit),0);
+  const net=collectee-deductible;
+  box.innerHTML=`<div class="card"><div class="card-h">Déclaration de TVA — solde non liquidé</div>
+   <table style="max-width:520px">
+    <tr><td>TVA collectée sur ventes (4431)</td><td class="right">${FCFA(collectee)}</td></tr>
+    <tr><td>TVA déductible sur achats (4452)</td><td class="right">− ${FCFA(deductible)}</td></tr>
+    <tr style="background:#f1f5f9"><td class="bold">${net>=0?'TVA à décaisser':'Crédit de TVA'}</td>
+      <td class="right bold ${net>=0?'txt-r':'txt-v'}">${FCFA(Math.abs(net))}</td></tr></table>
+   <button class="btn-p" style="margin-top:12px" onclick="confirmAction('Liquider la TVA ? Une écriture soldera 4431 et 4452 et constatera le net en 4434 (à payer) ou 4449 (crédit).','Liquider la TVA','liquiderTVA')">⚖️ Liquider la TVA</button>
+   <div style="margin-top:14px" class="grid kpis">
+    <div class="kpi rouge"><div class="lab">TVA due cumulée (4434)</div><div class="val">${FCFA(due)}</div></div>
+    <div class="kpi vert"><div class="lab">Crédit de TVA reporté (4449)</div><div class="val">${FCFA(credit)}</div></div></div>
+   <p class="sm txt-m">Après liquidation, réglez la TVA due via Trésorerie (4434 → banque) ou imputez le crédit sur la période suivante. Télédéclaration sur e-impôts.</p></div>`;
+}
+async function liquiderTVA(){const bal=await balance();
+  const collectee=bal.filter(b=>String(b.num).startsWith('4431')).reduce((a,b)=>a+(b.credit-b.debit),0);
+  const deductible=bal.filter(b=>String(b.num).startsWith('4452')).reduce((a,b)=>a+(b.debit-b.credit),0);
+  if(Math.round(collectee)<=0&&Math.round(deductible)<=0){toast('Aucune TVA à liquider');return;}
+  const net=Math.round(collectee-deductible);
+  await ensureCompte('4434','État, TVA due (à décaisser)','passif');
+  await ensureCompte('4449','État, crédit de TVA à reporter','actif');
+  const lignes=[];
+  if(Math.round(collectee)>0)lignes.push({compte:'4431',debit:Math.round(collectee),credit:0});
+  if(Math.round(deductible)>0)lignes.push({compte:'4452',debit:0,credit:Math.round(deductible)});
+  if(net>=0)lignes.push({compte:'4434',debit:0,credit:net});
+  else lignes.push({compte:'4449',debit:-net,credit:0});
+  await ecrire('OD',today(),'Liquidation TVA au '+today(),lignes,'TVA-'+today().replace(/-/g,''));
+  toast(net>=0?('TVA à décaisser : '+FCFA(net)):('Crédit de TVA : '+FCFA(-net)));
+  go('compta');
+}
+
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
   // corrige anciennes valeurs par défaut et complète les champs fiscaux officiels PSF
