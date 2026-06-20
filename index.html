@@ -217,6 +217,8 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
 .page-h h1{letter-spacing:-.3px}
 @media(max-width:860px){.sidebar{left:-222px;width:222px}.sidebar.open{left:0}.main{max-width:100vw}}
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
 
@@ -4766,29 +4768,26 @@ PAGES.carte=async()=>{
   const cls=await dbAll('clients'),deps=await dbAll('depots');
   window._carte={cls,deps};
   H(pageH('Carte & Itinéraires','<button class="btn-p" onclick="planifierItineraire()">🗺️ Planifier itinéraire</button>')+`
-   <div class="tabs"><div class="tab on" onclick="carteTab('google',this)">Google Maps</div>
+   <div class="tabs"><div class="tab on" onclick="carteTab('osm',this)">Carte interactive (OSM)</div>
     <div class="tab" onclick="carteTab('svg',this)">Carte schéma (offline)</div></div>
    <div id="carte-body"></div>`);
-  carteRender('google');
+  carteRender('osm');
 };
 function carteTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');carteRender(t);}
 function carteRender(t){const box=document.getElementById('carte-body');const {cls,deps}=window._carte;
-  if(t==='google'){
-    const first=cls[0]?clientCoords(cls[0]):{lat:5.345,lng:-4.024};
-    box.innerHTML=`<div class="row">
-      <div class="card" style="flex:2;padding:0;overflow:hidden">
-        <iframe id="gmap-frame" src="${gmapPoint(first.lat,first.lng,7)}" style="width:100%;height:470px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
-      <div class="card f"><div class="card-h">Localiser un point</div>
-        <select onchange="centrerGmap(this.value)" style="margin-bottom:10px">
-          <option value="">— choisir un client —</option>
-          ${cls.map(c=>{const co=clientCoords(c);return `<option value="${co.lat},${co.lng}">${esc(c.nom)} (${esc(c.ville||c.zone)})</option>`;}).join('')}</select>
-        <table><tr><th>Nom</th><th>Statut</th><th></th></tr>
-        ${cls.map(c=>{const co=clientCoords(c);return `<tr><td class="sm">${esc(c.nom)}</td>
-          <td><span class="tag ${c.statut==='prospect'?'t-orange':'t-vert'}">${c.statut||'client'}</span></td>
-          <td><a href="${gmapLink(co.lat,co.lng)}" target="_blank" class="btn-b btn-sm" style="text-decoration:none">📍 GMaps</a></td></tr>`;}).join('')}</table>
-        <p class="sm txt-m" style="margin-top:8px">Carte Google chargée en ligne. Sans connexion, basculez sur la carte schéma offline.</p>
-      </div></div>`;
-  }else{
+  if(t==='osm'){
+    const pts=[];
+    deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];pts.push({lat:c[0],lng:c[1],color:'#1d3f6e',popup:'🏬 <b>'+esc(d.nom)+'</b><br>Dépôt — '+esc(d.zone||'')});});
+    cls.forEach(c=>{const co=clientCoords(c);const pro=c.statut==='prospect';
+      pts.push({lat:co.lat,lng:co.lng,color:pro?'#e67e22':'#1f7a3d',popup:'<b>'+esc(c.nom)+'</b><br>'+esc(c.ville||c.zone||'')+(c.tel?'<br>📞 '+esc(c.tel):'')+'<br><a href="'+gmapLink(co.lat,co.lng)+'" target="_blank">Google Maps ↗</a>'});});
+    const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
+    box.innerHTML=`<div class="card" style="padding:0;overflow:hidden"><div id="osm-map" style="width:100%;height:480px;background:#eef1f0"></div></div>
+      <div class="sm" style="margin-top:8px"><span class="badge-dot" style="background:#1f7a3d"></span>Client (${nbC})
+      <span class="badge-dot" style="background:#e67e22;margin-left:12px"></span>Prospect (${nbP})
+      <span class="badge-dot" style="background:#1d3f6e;margin-left:12px"></span>Dépôt
+      <span style="margin-left:12px" class="txt-m">Tuiles © OpenStreetMap • Leaflet</span></div>`;
+    setTimeout(()=>leafletInit('osm-map',pts,null),60);
+    }else{
     const markers=[];deps.forEach(d=>{const c=CITIES[(d.zone||'').toLowerCase()]||CITIES['abidjan'];markers.push({lat:c[0],lng:c[1],label:'🏬 '+d.nom,kind:'depot'});});
     cls.forEach(c=>{const co=clientCoords(c);markers.push({lat:co.lat,lng:co.lng,label:c.nom,kind:c.statut==='prospect'?'prospect':'client',show:false});});
     const nbC=cls.filter(c=>c.statut!=='prospect').length,nbP=cls.filter(c=>c.statut==='prospect').length;
@@ -4827,20 +4826,21 @@ async function voirItineraire(id){
     <td class="right sm txt-m">${i>0?Math.round(haversine(route[i-1],route[i]))+' km':'départ'}</td></tr>`).join('');
   const gLink=gmapDirLink(route);
   modal('Itinéraire — '+(route.length-1)+' visites',
-   `<div class="tabs"><div class="tab on" onclick="itinTab('gmap',this)">Google Maps</div>
+   `<div class="tabs"><div class="tab on" onclick="itinTab('osm',this)">Carte OSM</div>
      <div class="tab" onclick="itinTab('svg',this)">Schéma offline</div></div>
-    <div id="itin-map"><iframe src="${gmapDirEmbed(route)}" style="width:100%;height:340px;border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
+    <div id="itin-map"><div id="itin-osm" style="width:100%;height:340px;border-radius:8px;background:#eef1f0"></div></div>
     <table style="margin-top:10px"><tr><th>#</th><th>Arrêt</th><th class="right">Tronçon</th></tr>${listHTML}</table>
     <div class="bold" style="margin-top:8px">Distance à vol d'oiseau ≈ ${Math.round(dist)} km</div>
     <div style="display:none" id="itin-svg-data">${ciMapSVG(markers,route)}</div>`,
    `<button class="btn-g" onclick="closeModal()">Fermer</button>
     <a href="${gLink}" target="_blank" class="btn-p" style="text-decoration:none">🧭 Ouvrir dans Google Maps</a>
     <button class="btn-b" onclick="imprimerItineraire()">🖨️ Aperçu / Imprimer</button>`,true);
+  setTimeout(()=>leafletInit('itin-osm',[],ITIN.route),80);
 }
 function itinTab(t,el){document.querySelectorAll('.modal .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');
   const box=document.getElementById('itin-map');
   if(t==='svg'){box.innerHTML=document.getElementById('itin-svg-data').innerHTML;}
-  else{box.innerHTML='<iframe src="'+gmapDirEmbed(ITIN.route)+'" style="width:100%;height:340px;border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>';}
+  else{box.innerHTML='<div id="itin-osm" style="width:100%;height:340px;border-radius:8px;background:#eef1f0"></div>';setTimeout(()=>leafletInit('itin-osm',[],ITIN.route),60);}
 }
 async function imprimerItineraire(){if(!ITIN)return;const p=await dbGet('parametres','main');
   const markers=ITIN.route.map((r,i)=>({lat:r.lat,lng:r.lng,label:i+'. '+r.label,kind:i===0?'depot':'client'}));
@@ -6387,6 +6387,23 @@ async function tresorerieDash(){const bal=await balance();
    `<div class="f"><div class="card-h" style="margin-top:0">Soldes de trésorerie</div>${barChartSVG(bars,{w:360})}</div>`);
 }
 
+
+function leafletInit(containerId,points,route){
+  const el=document.getElementById(containerId);if(!el)return;
+  if(typeof L==='undefined'){el.innerHTML='<div class="empty" style="padding:30px;text-align:center">Carte indisponible hors connexion.<br>Basculez sur la carte schéma offline.</div>';return;}
+  if(el._map){el._map.remove();el._map=null;}
+  const map=L.map(containerId,{scrollWheelZoom:true});el._map=map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  const bounds=[];
+  (points||[]).forEach(p=>{const m=L.circleMarker([p.lat,p.lng],{radius:8,color:'#fff',weight:2,fillColor:p.color||'#1f7a3d',fillOpacity:1}).addTo(map);
+    if(p.popup)m.bindPopup(p.popup);bounds.push([p.lat,p.lng]);});
+  if(route&&route.length){const line=route.map(r=>[r.lat,r.lng]);
+    L.polyline(line,{color:'#c2703d',weight:3,dashArray:'7,7',opacity:.9}).addTo(map);
+    route.forEach((r,i)=>{const ic=L.divIcon({className:'',html:'<div style="background:'+(i===0?'#1d3f6e':'#c2703d')+';color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">'+i+'</div>',iconSize:[24,24],iconAnchor:[12,12]});
+      L.marker([r.lat,r.lng],{icon:ic}).addTo(map).bindPopup('<b>'+i+'. '+esc(r.label||'')+'</b>');bounds.push([r.lat,r.lng]);});}
+  if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:13});else map.setView([7.5,-5.5],7);
+  setTimeout(()=>map.invalidateSize(),120);
+}
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
   // corrige anciennes valeurs par défaut et complète les champs fiscaux officiels PSF
