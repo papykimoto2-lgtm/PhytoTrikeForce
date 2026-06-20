@@ -2894,7 +2894,7 @@ const NAV=[
  ['⑦ Ventes & Distribution',[['commandes','🛒','Commandes'],['livraisons','🚚','Distribution']]],
  ['⑧ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
  ['⑨ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
-   ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations']]],
+   ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations fiscales']]],
  ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]],
  ['⑪ Marketing & ROI',[['marketing','🎯','Plan Marketing & ROI']]]
 ];
@@ -3790,7 +3790,7 @@ PAGES.rh=async()=>{
    <div class="tabs"><div class="tab on" onclick="tabRH('liste',this)">Personnel</div>
     <div class="tab" onclick="tabRH('paie',this)">Bulletins de paie</div>
     <div class="tab" onclick="tabRH('presence',this)">Présence</div>
-    <div class="tab" onclick="tabRH('decla',this)">Déclarations</div></div>
+    <div class="tab" onclick="tabRH('decla',this)">Déclarations sociales</div></div>
    <div id="rh-body"></div>`);
   tabRHRender('liste');
 };
@@ -4010,14 +4010,20 @@ async function rhDeclarations(box){
      <input id="rh-per-mois" type="month" value="${RH_PER.mois}" onchange="RH_PER.mois=this.value;tabRHRender('decla')"></div>
     <div class="fld f"><label>Exercice annuel (État 301/302, FDFP, DISA/DASC)</label>
      <input id="rh-per-an" type="number" value="${RH_PER.annee}" onchange="RH_PER.annee=parseInt(this.value);tabRHRender('decla')"></div></div>
-   <p class="sm txt-m">Calculs basés sur les bulletins déjà générés (onglet Bulletins de paie). Ces documents sont des aides au calcul à reporter sur les formulaires officiels DGI / CNPS / FDFP — à valider avec votre expert-comptable.</p></div>
+   <p class="sm txt-m">Calculs basés sur les bulletins déjà générés (onglet Bulletins de paie). Ces documents sont des aides au calcul à reporter sur les formulaires officiels DGI / CNPS / FDFP — à valider avec votre expert-comptable.</p>
+   <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+     <span class="sm txt-m">N° employeur CNPS : <b>${esc(param.cnpsNum||'—')}</b> •</span>
+     <a href="${esc(param.eCnps||'https://e.cnps.ci/')}" target="_blank" class="btn-b btn-sm" style="text-decoration:none">🔗 Télédéclarer sur e-CNPS</a>
+     <a href="${esc(param.eimpots||'https://e-impots.gouv.ci')}" target="_blank" class="btn-g btn-sm" style="text-decoration:none">🔗 e-impôts (ITS)</a>
+   </div></div>
    <div class="row">
     <div class="card f"><div class="card-h">🏛️ Impôts (DGI) — mensuel</div>
      <p class="sm txt-m">Déclaration ITS du mois ${RH_PER.mois}</p>
      <button class="btn-b btn-sm" onclick="declITS()">🖨️ Aperçu Déclaration ITS</button></div>
     <div class="card f"><div class="card-h">🧓 CNPS — mensuel</div>
      <p class="sm txt-m">Bordereau de cotisations du mois ${RH_PER.mois}</p>
-     <button class="btn-b btn-sm" onclick="declCNPS()">🖨️ Aperçu Déclaration CNPS</button></div></div>
+     <button class="btn-b btn-sm" onclick="declCNPS()">🖨️ Aperçu Déclaration CNPS</button>
+     <a href="${esc(param.eCnps||'https://e.cnps.ci/')}" target="_blank" class="btn-g btn-sm" style="text-decoration:none">🔗 e-CNPS</a></div></div>
    <div class="row">
     <div class="card f"><div class="card-h">📄 État 301 — annuel ${RH_PER.annee}</div>
      <p class="sm txt-m">Récapitulatif des salaires versés (exercice ${RH_PER.annee})</p>
@@ -4034,8 +4040,9 @@ async function rhDeclarations(box){
      <button class="btn-b btn-sm" onclick="declFDFP()">🖨️ Aperçu FDFP</button></div></div>
    <div class="row">
     <div class="card f"><div class="card-h">👥 DISA — annuel ${RH_PER.annee}</div>
-     <p class="sm txt-m">Déclaration Individuelle des Salaires Annuels (CNPS)</p>
-     <button class="btn-b btn-sm" onclick="declDisaDasc('DISA')">🖨️ Aperçu DISA</button></div>
+     <p class="sm txt-m">Déclaration Individuelle des Salaires Annuels (CNPS) — dépôt via e-DISA / e-CNPS</p>
+     <button class="btn-b btn-sm" onclick="declDisaDasc('DISA')">🖨️ Aperçu DISA</button>
+     <a href="${esc(param.eCnps||'https://e.cnps.ci/')}" target="_blank" class="btn-g btn-sm" style="text-decoration:none">🔗 e-CNPS</a></div>
     <div class="card f"><div class="card-h">📑 DASC — annuel ${RH_PER.annee}</div>
      <p class="sm txt-m">Déclaration Annuelle des Salaires et Cotisations (jointe à la DISA)</p>
      <button class="btn-b btn-sm" onclick="declDisaDasc('DASC')">🖨️ Aperçu DASC</button></div></div>`;
@@ -4153,11 +4160,7 @@ PAGES.fiscal=async()=>{
   const gd=cl=>bal.filter(b=>b.num.startsWith(cl)).reduce((a,b)=>a+(b.debit-b.credit),0);
   const resultat=g('70')-gd('60')-gd('61')-gd('62')-gd('64')-gd('66')-gd('67')-gd('68');
   const is=Math.max(0,resultat*p.tauxIS/100);
-  // social
-  const paiesM=(await dbAll('paies')).filter(x=>x.periode===moisCourant);
-  const cnps=paiesM.reduce((a,x)=>a+x.chargesPatr+x.cotisSal,0);
-  const its=paiesM.reduce((a,x)=>a+(x.brut*p.tauxITS/100),0);
-  H(pageH('Déclarations Fiscales & Sociales')+`
+  H(pageH('Déclarations fiscales')+`
    <div class="card"><div class="card-h">🏛️ Identité fiscale du contribuable</div>
     <div class="row">
      <div class="f"><div class="sm txt-m">Contribuable</div><div class="bold">${esc(p.nom)}</div></div>
@@ -4181,12 +4184,9 @@ PAGES.fiscal=async()=>{
      <tr><td>Résultat fiscal cumulé</td><td class="right ${resultat<0?'txt-r':''}">${FCFA(resultat)}</td></tr>
      <tr style="background:#fef3c7"><td class="bold">IS estimé</td><td class="right bold">${FCFA(is)}</td></tr></table>
     <p class="sm txt-m">Min. forfaitaire IMF applicable selon CGI. À valider avec expert-comptable.</p></div>
-   <div class="card"><div class="card-h">👥 Déclarations sociales — ${moisCourant}</div>
-    <table style="max-width:480px">
-     <tr><td>CNPS (part patronale + salariale)</td><td class="right">${FCFA(cnps)}</td></tr>
-     <tr><td>ITS (impôt sur traitements/salaires)</td><td class="right">${FCFA(its)}</td></tr>
-     <tr style="background:#dbeafe"><td class="bold">Total charges sociales</td><td class="right bold">${FCFA(cnps+its)}</td></tr></table>
-    ${paiesM.length?'':'<p class="sm txt-r">Aucune paie générée ce mois — allez dans RH → Générer paie.</p>'}</div>`);
+   <div class="card"><div class="card-h">👥 Déclarations sociales & sur salaires</div>
+    <p class="sm txt-m">ITS, CNPS (DISA), FDFP, CMU, États 301/302 et DASC sont gérés dans le module <b>RH / Paie → onglet Déclarations sociales</b>, à partir des bulletins.</p>
+    <button class="btn-b btn-sm" onclick="go('rh')">→ Aller aux déclarations sociales (RH)</button></div>`);
 };
 
 /* ---- PARAMÈTRES ---- */
@@ -4221,7 +4221,8 @@ PAGES.parametres=async()=>{
        ${['RNI (Réel Normal)','RSI (Réel Simplifié)','RME (Microentreprise)'].map(x=>`<option ${p.regime===x?'selected':''}>${x}</option>`).join('')}</select></div>
      <div class="fld f"><label>Service d'assiette</label><input id="pa-centre" value="${esc(p.centre||'')}" placeholder="Yopougon 4"></div></div>
     <div class="row"><div class="fld f"><label>N° télédéclarant</label><input id="pa-teledec" value="${esc(p.teledeclarant||'')}" placeholder="2397796793674"></div>
-     <div class="fld f"><label>Plateforme e-impôts</label><input id="pa-eimpots" value="${esc(p.eimpots||'https://e-impots.gouv.ci')}"></div></div>
+     <div class="fld f"><label>Plateforme e-impôts</label><input id="pa-eimpots" value="${esc(p.eimpots||'https://e-impots.gouv.ci')}"></div>
+     <div class="fld f"><label>Plateforme e-CNPS</label><input id="pa-ecnps" value="${esc(p.eCnps||'https://e.cnps.ci/')}"></div></div>
     <div class="row"><div class="fld f"><label>TVA intrants %</label><input id="pa-tvap" type="number" value="${p.tvaPhyto}"></div>
      <div class="fld f"><label>TVA std %</label><input id="pa-tvas" type="number" value="${p.tvaStd}"></div>
      <div class="fld f"><label>CNPS patronal %</label><input id="pa-cnps" type="number" value="${p.tauxCNPS}"></div>
@@ -4264,7 +4265,7 @@ async function saveParam(){const p=await dbGet('parametres','main');
     siege:val('pa-siege'),tel:val('pa-tel'),mail:val('pa-mail'),tvaPhyto:num('pa-tvap'),tvaStd:num('pa-tvas'),
     tauxCNPS:num('pa-cnps'),tauxIS:num('pa-is'),tauxITS:num('pa-its'),
     ncc:val('pa-ncc'),regime:val('pa-regime'),centre:val('pa-centre'),gmapKey:val('pa-gmap'),
-    teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots'),
+    teledeclarant:val('pa-teledec'),eimpots:val('pa-eimpots'),eCnps:val('pa-ecnps'),
     cnpsNum:val('pa-cnpsnum'),cnpsPlafond:num('pa-cnpsplaf')||1647315,
     tauxTAP:num('pa-tap'),tauxTFPC:num('pa-tfpc'),
     tauxCnpsSal:num('pa-cnpssal'),tauxAT:num('pa-at'),tauxPF:num('pa-pf'),plafondSoc:num('pa-plafsoc')||75000,
@@ -6053,6 +6054,7 @@ async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p
   // corrige anciennes valeurs par défaut et complète les champs fiscaux officiels PSF
   if(!p.teledeclarant){p.teledeclarant='2397796793674';chg=true;}
   if(!p.eimpots){p.eimpots='https://e-impots.gouv.ci';chg=true;}
+  if(!p.eCnps){p.eCnps='https://e.cnps.ci/';chg=true;}
   if(!p.ncc||p.ncc==='CI-2022-0017016'){p.ncc='CI-2022-0017016 Q';chg=true;}
   if(!p.rccm||p.rccm==='CI-2022-0017016 Q'){p.rccm='CI-ABJ-03-2022-B12-00267';chg=true;}
   if(!p.centre||p.centre==='CME Yopougon'){p.centre='Yopougon 4';chg=true;}
