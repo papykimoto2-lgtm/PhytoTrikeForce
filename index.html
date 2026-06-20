@@ -4451,9 +4451,10 @@ PAGES.factures=async()=>{
      <td class="right">${FCFA(f.totalHT)}</td><td class="right">${FCFA(f.totalTVA)}</td>
      <td class="right bold">${FCFA(f.totalTTC)}</td>
      <td class="right ${reste>0?'txt-r':'txt-v'}">${FCFA(f.regle||0)}</td>
-     <td><span class="tag ${reste<=0?'t-vert':(f.regle?'t-orange':'t-rouge')}">${reste<=0?'Payée':(f.regle?'Partiel':'Impayée')}</span></td>
+     <td><span class="tag ${reste<=0?'t-vert':(f.regle?'t-orange':'t-rouge')}">${reste<=0?'Réglée':(f.regle?'Partiel':'Impayée')}</span></td>
      <td>${tFNE&&f.statutFNE!=='transmise'?`<button class="btn-b btn-sm" onclick="transmettreFNE('${f.id}')">Transmettre</button>`:''}
         ${reste>0&&f.statut!=='annulee'?`<button class="btn-p btn-sm" onclick="reglerFacture('${f.id}')">Régler</button>`:''}
+        ${reste<=0&&f.statut!=='annulee'?`<button class="btn-g btn-sm" style="color:#166534;border-color:#16a34a" onclick="voirReglements('${f.id}')">✓ Réglée</button>`:''}
         ${reste>0&&f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="planEcheancierModal('${f.id}')" title="Facilité de paiement">📅</button>`:''}
         <button class="btn-g btn-sm" onclick="imprimerFacture('${f.id}')">🖨️</button>
         ${f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="annulerFacture('${f.id}')">Annuler</button>`:''}
@@ -4554,6 +4555,16 @@ async function saveFactureLibre(){const lignes=LIGNES.filter(l=>l.qte>0);if(!lig
   for(const l of lignes)await mouvStock(l.produitId,STATE.depot,l.qte,'sortie','Facture directe');
   await genererFacture(cid,lignes,null,val('fl-type'));
   closeModal();toast('Facture émise');go('factures');
+}
+async function voirReglements(id){const f=await dbGet('factures',id);
+  const rs=(await dbAll('reglements')).filter(r=>r.factureId===id).sort((a,b)=>a.date<b.date?-1:1);
+  const lab={'571':'Espèces','531':'Mobile Money','521':'Banque'};
+  modal('Règlements — '+f.num,`
+   <p class="sm">Total facture : <b>${FCFA(f.totalTTC)}</b> — <span class="txt-v bold">Soldée ✓</span></p>
+   <table><tr><th>Date</th><th>Moyen</th><th class="right">Montant</th></tr>
+   ${rs.map(r=>`<tr><td>${fmtD(r.date)}</td><td>${lab[r.mode]||r.mode}</td><td class="right">${FCFA(r.montant)}</td></tr>`).join('')||'<tr><td colspan=3 class="empty">Aucun règlement détaillé</td></tr>'}
+   <tr style="background:#f1f5f9"><td colspan=2 class="bold">Total réglé</td><td class="right bold">${FCFA(rs.reduce((a,r)=>a+r.montant,0))}</td></tr></table>`,
+   `<button class="btn-g" onclick="closeModal()">Fermer</button>`);
 }
 async function reglerFacture(id){const f=await dbGet('factures',id);const reste=f.totalTTC-(f.regle||0);
   modal('Règlement — '+f.num,`
