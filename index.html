@@ -5346,21 +5346,165 @@ function campZoomSel(v){
   const[la,ln]=v.split(',');campZoomZone(parseFloat(la),parseFloat(ln),'');
 }
 
-/* --- Calendrier saisonnier (Gantt 12 mois) --- */
+/* --- Calendrier saisonnier (Gantt 12 mois) + éditeur ingénieur --- */
+/* Copie de travail modifiable en session (non persistée) */
+let CULTURES_ED=null;
+function culturesEd(){if(!CULTURES_ED)CULTURES_ED=JSON.parse(JSON.stringify(CULTURES));return CULTURES_ED;}
+
 function campCalendrier(box){
-  let rows='';
-  CULTURES.forEach(c=>{c.interventions.forEach((iv,k)=>{
-    const cells=MOIS.map((mn,mi)=>{const on=iv.mois.includes(mi+1);
-      const op=0.35+iv.intensite*0.22;
-      return `<td style="padding:0;height:26px;${on?`background:${FAM_COL[iv.famille]};opacity:${op}`:''}" title="${on?esc(c.nom+' — '+iv.stade):''}"></td>`;}).join('');
-    rows+=`<tr><td class="sm">${k===0?c.emoji+' <b>'+esc(c.nom)+'</b>':''}</td>
-      <td class="sm">${esc(iv.type)}</td>${cells}</tr>`;});});
-  box.innerHTML=`<div class="card"><div class="card-h">Calendrier des interventions phytosanitaires</div>
-    <table style="font-size:12px"><tr><th>Culture</th><th>Intervention</th>${MOIS.map(m=>`<th class="center">${m}</th>`).join('')}</tr>${rows}</table>
-    <div class="sm" style="margin-top:10px">
-     ${Object.entries(FAM_COL).filter(([f])=>f!=='Engrais').map(([f,c])=>`<span class="badge-dot" style="background:${c}"></span>${f}&nbsp;&nbsp;`).join('')}
-     <span class="txt-m">— intensité = opacité</span></div></div>
-   <p class="sm txt-m">Lecture : chaque barre indique la fenêtre où le produit doit être disponible en stock et chez les revendeurs. Anticipez l'appro 1 à 2 mois avant.</p>`;
+  box.innerHTML=`
+  <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+    <div style="flex:1;min-width:280px">
+      <div class="card-h" style="margin-bottom:0">📅 Calendrier des interventions phytosanitaires</div>
+      <p class="sm txt-m" style="margin-top:4px">Cliquez sur une cellule pour activer/désactiver. Cliquez sur une ligne pour l'éditer.</p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <button class="btn-p btn-sm" onclick="calEdAddCulture()">+ Culture</button>
+      <button class="btn-b btn-sm" onclick="calEdExport()">⬇ Exporter JSON</button>
+      <button class="btn-g btn-sm" onclick="calEdReset()">↺ Réinitialiser</button>
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table id="cal-table" style="font-size:12px;min-width:700px">
+      <thead><tr>
+        <th style="min-width:90px">Culture</th>
+        <th style="min-width:160px">Intervention</th>
+        <th style="min-width:80px">Famille</th>
+        <th style="min-width:44px" class="center">Int.</th>
+        ${MOIS.map((m,i)=>`<th class="center" style="min-width:34px;padding:6px 2px">${m}</th>`).join('')}
+        <th style="min-width:50px"></th>
+      </tr></thead>
+      <tbody id="cal-body"></tbody>
+    </table>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+    ${Object.entries(FAM_COL).map(([f,c])=>`<span><span class="badge-dot" style="background:${c}"></span>${f}</span>`).join('')}
+    <span class="txt-m sm">— opacité = intensité (1–3)</span>
+  </div>
+  <p class="sm txt-m" style="margin-top:8px">Lecture : chaque barre = fenêtre où le produit doit être en stock. Anticipez l'appro 1–2 mois avant.</p>
+  <!-- Panneau d'édition inline -->
+  <div id="cal-ed-panel" style="display:none;margin-top:14px"></div>`;
+  calRenderBody();
+}
+
+function calRenderBody(){
+  const tbody=document.getElementById('cal-body');if(!tbody)return;
+  const data=culturesEd();let rows='';
+  data.forEach((c,ci)=>{
+    c.interventions.forEach((iv,ii)=>{
+      const op=Math.min(0.9,0.28+iv.intensite*0.22);
+      const cells=MOIS.map((_,mi)=>{
+        const on=iv.mois.includes(mi+1);
+        return `<td onclick="calToggleMois(${ci},${ii},${mi+1})" style="padding:0;height:28px;cursor:pointer;${on?`background:${FAM_COL[iv.famille]};opacity:${op}`:''};transition:background .15s" title="${on?esc(iv.stade):'Cliquer pour activer'}"></td>`;}).join('');
+      const isFirst=ii===0;
+      rows+=`<tr id="cal-row-${ci}-${ii}" style="cursor:pointer">
+        <td class="sm" style="white-space:nowrap">${isFirst?`<b>${c.emoji} ${esc(c.nom)}</b>`:''}</td>
+        <td class="sm" onclick="calEdEditRow(${ci},${ii})" style="cursor:text">${esc(iv.type)}</td>
+        <td><span class="tag" style="background:${FAM_COL[iv.famille]}22;color:${FAM_COL[iv.famille]};font-size:10px">${iv.famille}</span></td>
+        <td class="center">
+          <select style="width:38px;padding:2px 2px;font-size:11px" onchange="calSetIntensite(${ci},${ii},this.value)">
+            ${[1,2,3].map(v=>`<option ${iv.intensite===v?'selected':''}>${v}</option>`).join('')}</select></td>
+        ${cells}
+        <td style="white-space:nowrap">
+          <button class="btn-r btn-sm" style="padding:3px 7px;font-size:11px" onclick="calEdDelRow(${ci},${ii})" title="Supprimer">×</button>
+          ${isFirst?`<button class="btn-g btn-sm" style="padding:3px 7px;font-size:11px;margin-left:3px" onclick="calEdAddRow(${ci})" title="+ intervention">+</button>`:''}
+        </td>
+      </tr>`;});});
+  tbody.innerHTML=rows;
+}
+
+function calToggleMois(ci,ii,m){
+  const iv=culturesEd()[ci].interventions[ii];
+  const idx=iv.mois.indexOf(m);
+  if(idx>=0)iv.mois.splice(idx,1);else iv.mois.push(m);
+  iv.mois.sort((a,b)=>a-b);
+  calRenderBody();
+}
+function calSetIntensite(ci,ii,v){
+  culturesEd()[ci].interventions[ii].intensite=parseInt(v);
+  calRenderBody();
+}
+
+function calEdEditRow(ci,ii){
+  const c=culturesEd()[ci],iv=c.interventions[ii];
+  const panel=document.getElementById('cal-ed-panel');if(!panel)return;
+  panel.style.display='block';
+  panel.innerHTML=`<div class="card" style="border:2px solid var(--bleu2)">
+    <div class="card-h">✏️ Éditer — ${c.emoji} ${esc(c.nom)} › ${esc(iv.type)}</div>
+    <div class="row">
+      <div class="fld f"><label>Culture — Nom</label><input id="ed-cnom" value="${esc(c.nom)}"></div>
+      <div class="fld" style="width:48px"><label>Emoji</label><input id="ed-emoji" value="${esc(c.emoji)}" style="width:48px;text-align:center"></div>
+      <div class="fld f"><label>Part marché (%)</label><input id="ed-part" type="number" min="0" max="100" value="${c.part}"></div>
+    </div>
+    <div class="row">
+      <div class="fld f"><label>Zones (séparées par virgule)</label><input id="ed-zones" value="${c.zones.join(', ')}"></div>
+    </div>
+    <hr style="margin:10px 0;border:none;border-top:1px solid var(--bord)">
+    <div class="row">
+      <div class="fld f"><label>Type d'intervention</label><input id="ed-type" value="${esc(iv.type)}"></div>
+      <div class="fld f"><label>Famille</label>
+        <select id="ed-fam">${Object.keys(FAM_COL).map(f=>`<option ${iv.famille===f?'selected':''}>${f}</option>`).join('')}</select></div>
+    </div>
+    <div class="fld"><label>Stade phénologique</label><input id="ed-stade" value="${esc(iv.stade)}"></div>
+    <div class="fld"><label>Mois actifs — cliquez directement sur le calendrier ou saisissez (ex: 5,6,7)</label>
+      <input id="ed-mois" value="${iv.mois.join(',')}"></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn-p" onclick="calEdSaveRow(${ci},${ii})">💾 Enregistrer</button>
+      <button class="btn-g" onclick="document.getElementById('cal-ed-panel').style.display='none'">Fermer</button>
+    </div>
+  </div>`;
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function calEdSaveRow(ci,ii){
+  const data=culturesEd();const c=data[ci],iv=c.interventions[ii];
+  c.nom=document.getElementById('ed-cnom').value.trim()||c.nom;
+  c.emoji=document.getElementById('ed-emoji').value.trim()||c.emoji;
+  c.part=parseFloat(document.getElementById('ed-part').value)||c.part;
+  c.zones=document.getElementById('ed-zones').value.split(',').map(z=>z.trim()).filter(Boolean);
+  iv.type=document.getElementById('ed-type').value.trim()||iv.type;
+  iv.famille=document.getElementById('ed-fam').value;
+  iv.stade=document.getElementById('ed-stade').value.trim();
+  const moisRaw=document.getElementById('ed-mois').value.split(',').map(x=>parseInt(x.trim())).filter(x=>x>=1&&x<=12);
+  if(moisRaw.length)iv.mois=moisRaw.sort((a,b)=>a-b);
+  document.getElementById('cal-ed-panel').style.display='none';
+  calRenderBody();toast('Modification enregistrée (session)');
+}
+
+function calEdAddRow(ci){
+  const c=culturesEd()[ci];
+  c.interventions.push({type:'Nouvelle intervention',famille:'Herbicide',stade:'',mois:[],intensite:1});
+  calRenderBody();
+  calEdEditRow(ci,c.interventions.length-1);
+}
+
+function calEdAddCulture(){
+  const data=culturesEd();
+  data.push({nom:'Nouvelle culture',emoji:'🌱',zones:['Centre'],part:1,interventions:[
+    {type:'Intervention',famille:'Herbicide',stade:'',mois:[],intensite:1}]});
+  calRenderBody();
+  calEdEditRow(data.length-1,0);
+}
+
+function calEdDelRow(ci,ii){
+  const data=culturesEd();const c=data[ci];
+  if(c.interventions.length===1){if(!confirm('Supprimer aussi la culture '+c.nom+' ?'))return;data.splice(ci,1);}
+  else c.interventions.splice(ii,1);
+  calRenderBody();
+}
+
+function calEdReset(){
+  if(!confirm('Réinitialiser vers les données PSF d\'origine ?'))return;
+  CULTURES_ED=null;calRenderBody();toast('Calendrier réinitialisé');
+}
+
+function calEdExport(){
+  const json=JSON.stringify(culturesEd(),null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='cultures_psf_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();URL.revokeObjectURL(a.href);
+  toast('JSON exporté');
 }
 
 /* --- Anticipation (fenêtres proches + stock) --- */
