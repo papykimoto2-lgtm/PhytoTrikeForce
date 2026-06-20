@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>PSF ERP — Phyto Strike Force</title>
 <style>
 :root{
@@ -30,7 +30,7 @@ tr:hover td{background:#f8fafc}
 
 /* LOGIN */
 #login{position:fixed;inset:0;background:linear-gradient(135deg,var(--vert) 0%,var(--bleu) 100%);display:flex;align-items:center;justify-content:center;z-index:1000}
-.login-card{background:#fff;border-radius:14px;padding:38px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.login-card{background:#fff;border-radius:14px;padding:38px;width:min(360px,94vw);box-shadow:0 20px 50px rgba(0,0,0,.3);max-height:95vh;overflow-y:auto}
 .login-logo{text-align:center;font-size:30px;font-weight:800;letter-spacing:2px;margin-bottom:4px}
 .login-logo .v{color:var(--vert)}.login-logo .b{color:var(--bleu)}
 .login-sub{text-align:center;color:var(--muted);font-size:12px;margin-bottom:24px}
@@ -82,7 +82,7 @@ tr:hover td{background:#f8fafc}
 .right{text-align:right}.center{text-align:center}.bold{font-weight:700}
 .txt-r{color:var(--rouge)}.txt-v{color:var(--ok)}.txt-m{color:var(--muted)}.sm{font-size:12px}
 .empty{text-align:center;padding:40px;color:#94a3b8}
-.toast{position:fixed;bottom:20px;right:20px;background:#1e293b;color:#fff;padding:12px 18px;border-radius:8px;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.3);animation:sl .3s}
+.toast{position:fixed;bottom:20px;right:20px;background:#1e293b;color:#fff;padding:12px 18px;border-radius:8px;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.3);animation:sl .3s;max-width:calc(100vw - 32px)}
 /* NOTIFICATIONS */
 .notif-bell{position:relative;background:none;border:none;font-size:19px;padding:6px 8px;border-radius:8px;margin-right:6px}
 .notif-bell:hover{background:#f1f5f9}
@@ -99,6 +99,7 @@ tr:hover td{background:#f8fafc}
 .notif-it .acts button{margin-right:6px;padding:4px 9px;font-size:11px}
 .notif-empty{padding:30px 14px;text-align:center;color:var(--muted);font-size:12.5px}
 @keyframes sl{from{transform:translateY(20px);opacity:0}}
+@keyframes slideUp{from{transform:translateY(60px);opacity:0}}
 .lines-tbl input,.lines-tbl select{padding:5px 7px}
 .tabs{display:flex;gap:4px;border-bottom:2px solid var(--bord);margin-bottom:16px;flex-wrap:wrap}
 .tab{padding:9px 16px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-2px}
@@ -129,8 +130,9 @@ tr:hover td{background:#f8fafc}
 
 /* ── Barre de navigation bottom (phone uniquement) ── */
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;
-  background:var(--nuit);border-top:1px solid rgba(255,255,255,.08);
-  height:60px;z-index:150;padding:0 4px;
+  background:#14241c;border-top:1px solid rgba(255,255,255,.1);
+  height:calc(60px + env(safe-area-inset-bottom));z-index:150;
+  padding:0 4px;padding-bottom:env(safe-area-inset-bottom);
   align-items:stretch;justify-content:space-around}
 .bottom-nav .bn-item{display:flex;flex-direction:column;align-items:center;
   justify-content:center;flex:1;gap:2px;cursor:pointer;
@@ -153,8 +155,8 @@ tr:hover td{background:#f8fafc}
   /* Topbar compacte */
   .topbar{padding:0 10px;height:52px}
   .brand{font-size:16px}
-  /* Masquer le sélecteur de dépôt dans la topbar (accessible via sidebar) */
-  .depot-sel{display:none}
+  /* Sélecteur dépôt visible sur tablette (petit) */
+  .depot-sel{min-width:110px;font-size:12px}
   /* user-chip : avatar + bouton quitter seulement */
   .user-chip .bold,.user-chip .sm{display:none}
   /* Modal plein écran sur tablette */
@@ -185,7 +187,7 @@ tr:hover td{background:#f8fafc}
   /* Bottom nav */
   .bottom-nav{display:flex}
   /* Décaler le contenu pour la bottom nav */
-  .main{padding-bottom:72px}
+  .main{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 }
 
 @media(max-width:540px){
@@ -199,11 +201,11 @@ tr:hover td{background:#f8fafc}
   .kpis{grid-template-columns:1fr}
   .kpi .val{font-size:20px}
   /* Main padding minimal */
-  .main{padding:10px 8px;padding-bottom:72px}
+  .main{padding:10px 8px;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
   /* Modals plein écran total */
   .modal-bg{padding:0;align-items:flex-end}
-  .modal,.modal.lg{border-radius:16px 16px 0 0;max-height:94vh}
-  .modal-b{max-height:68vh}
+  .modal,.modal.lg{border-radius:16px 16px 0 0;max-height:94vh;animation:slideUp .25s ease}
+  .modal-b{max-height:65vh}
   /* Formulaires : champs full width en colonne */
   .row{flex-direction:column;gap:8px}
   .f{min-width:0}
@@ -233,6 +235,8 @@ tr:hover td{background:#f8fafc}
   .leaflet-control-zoom a{width:34px !important;height:34px !important;line-height:34px !important;font-size:18px !important}
   /* Notification panel */
   .notif-panel{width:100vw;right:0;border-radius:12px 12px 0 0;top:auto;bottom:0;max-height:80vh}
+  /* Toast au dessus bottom nav */
+  .toast{bottom:calc(68px + env(safe-area-inset-bottom));right:12px;left:12px;text-align:center}
 }
 
 /* ── Tactile : zones de clic agrandies ── */
@@ -3756,11 +3760,56 @@ const NAV=[
    ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations fiscales']]],
  ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
+/* ====== SIDEBAR MOBILE ====== */
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebarOverlay');
+  const btn=document.getElementById('hamBtn');
+  const open=sb.classList.toggle('open');
+  if(ov)ov.classList.toggle('show',open);
+  if(btn)btn.classList.toggle('open',open);
+  document.body.style.overflow=open?'hidden':'';
+}
+function closeSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebarOverlay');
+  const btn=document.getElementById('hamBtn');
+  sb.classList.remove('open');
+  if(ov)ov.classList.remove('show');
+  if(btn)btn.classList.remove('open');
+  document.body.style.overflow='';
+}
+/* Fermeture sidebar quand on navigue */
+function _goAndClose(page){closeSidebar();go(page);}
+
 function buildNav(){
-  let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
-    for(const [k,ic,lab] of items)h+=`<div class="nav-item" data-k="${k}" onclick="go('${k}')">
-      <span class="ic">${ic}</span><span class="nav-lab">${lab}</span><span class="nav-badge" id="badge-${k}"></span></div>`;}
-  document.getElementById('sidebar').innerHTML=h;refreshNavBadges();}
+  // En-tête sidebar mobile : dépôt + utilisateur
+  const depSel=document.getElementById('depotGlobal');
+  const depHtml=depSel?`<div class="nav-depot-mobile" style="padding:10px 14px 6px;border-bottom:1px solid rgba(255,255,255,.07)">
+    <div style="font-size:10px;color:#5e7d6c;font-weight:700;text-transform:uppercase;margin-bottom:4px">Dépôt actif</div>
+    <select style="background:#1b3026;color:#e2e8f0;border:1px solid #2fa85a44;border-radius:6px;padding:7px 8px;font-size:13px;width:100%"
+      onchange="setDepot(this.value);closeSidebar()">${depSel.innerHTML}</select></div>`:'';
+  let h=depHtml;
+  for(const [grp,items] of NAV){
+    h+=`<div class="nav-grp">${grp}</div>`;
+    for(const [k,ic,lab] of items)
+      h+=`<div class="nav-item" data-k="${k}" onclick="_goAndClose('${k}')">
+        <span class="ic">${ic}</span><span class="nav-lab">${lab}</span><span class="nav-badge" id="badge-${k}"></span></div>`;
+  }
+  // Préserver la signature existante et construire le nav avant elle
+  const sb=document.getElementById('sidebar');
+  const sig=sb.querySelector('.sidebar-sig');
+  sb.innerHTML=h;
+  if(sig)sb.appendChild(sig);
+  /* ── Bottom nav : 5 raccourcis principaux ── */
+  const BN=[['dashboard','📊','Accueil'],['stock','📦','Stock'],['commandes','🛒','Ventes'],['factures','🧾','Factures'],['tresorerie','💰','Tréso']];
+  const bn=document.getElementById('bottomNav');
+  if(bn){
+    bn.innerHTML=BN.map(([k,ic,lab])=>`<div class="bn-item" data-k="${k}" onclick="go('${k}')">
+      <span class="bn-ic">${ic}</span><span class="bn-lab">${lab}</span></div>`).join('');
+  }
+  refreshNavBadges();
+}
 async function refreshNavBadges(){try{
   const set=(k,n,cls)=>{const e=document.getElementById('badge-'+k);if(!e)return;
     if(n>0){e.textContent=n>99?'99+':n;e.className='nav-badge '+(cls||'b-rouge');}else{e.textContent='';e.className='nav-badge';}};
@@ -3772,8 +3821,12 @@ async function refreshNavBadges(){try{
   set('stock',bas,'b-orange');
 }catch(e){}}
 function go(page){STATE.page=page;if(page!=='compta')EX_VIEW=null;
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('on',n.dataset.k===page));
-  (PAGES[page]||PAGES.dashboard)();refreshNavBadges();}
+  document.querySelectorAll('.nav-item,.bn-item').forEach(n=>n.classList.toggle('on',n.dataset.k===page));
+  (PAGES[page]||PAGES.dashboard)();refreshNavBadges();
+  /* scroll haut sur mobile */
+  const m=document.getElementById('main');if(m)m.scrollTop=0;
+  window.scrollTo(0,0);
+}
 
 /* ====== MOTEUR COMPTABLE ====== */
 async function ecrire(journal,date,libelle,lignes,piece,extra){
@@ -7950,6 +8003,22 @@ async function migrerComptesTiers(){
 })();
 document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 
+
+/* ── Geste swipe pour sidebar mobile ── */
+(function(){
+  let tx=0,ty=0;
+  document.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY;},{passive:true});
+  document.addEventListener('touchend',e=>{
+    if(!e.changedTouches.length)return;
+    const dx=e.changedTouches[0].clientX-tx;
+    const dy=e.changedTouches[0].clientY-ty;
+    if(Math.abs(dx)<Math.abs(dy)*1.5)return; // swipe principalement vertical → ignorer
+    const sb=document.getElementById('sidebar');
+    if(!sb)return;
+    if(dx>50&&tx<60&&!sb.classList.contains('open'))toggleSidebar(); // swipe droite depuis bord gauche
+    if(dx<-50&&sb.classList.contains('open'))closeSidebar();          // swipe gauche → fermer
+  },{passive:true});
+})();
 </script>
 </body>
 </html>
