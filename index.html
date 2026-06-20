@@ -2884,7 +2884,7 @@ function setDepot(id){STATE.depot=id;go(STATE.page);}
 /* ====== NAVIGATION ====== */
 const NAV=[
  ['① Pilotage',[['dashboard','📊','Tableau de bord'],['analytique','📈','Analytique']]],
- ['② Campagnes & Saisonnalité',[['campagnes','🌾','Campagnes & cultures']]],
+ ['② Stratégie & Anticipation',[['campagnes','🌾','Campagnes & cultures'],['marketing','🎯','Plan Marketing & ROI']]],
  ['③ Approvisionnement',[['fournisseurs','🏭','Fournisseurs'],['produits','🧪','Produits'],
    ['appro','📥','Appro / Achats']]],
  ['④ Stock & Dépôts',[['stock','📦','Stock & Dépôts']]],
@@ -2895,8 +2895,7 @@ const NAV=[
  ['⑧ Facturation & Recouvrement',[['factures','🧾','Facturation'],['tiers','📇','Comptes tiers']]],
  ['⑨ Trésorerie & Comptabilité',[['tresorerie','💰','Trésorerie'],['depenses','💸','Dépenses'],
    ['compta','📒','Comptabilité'],['fiscal','🏛️','Déclarations fiscales']]],
- ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]],
- ['⑪ Marketing & ROI',[['marketing','🎯','Plan Marketing & ROI']]]
+ ['⑩ Ressources & Admin',[['rh','🧑‍💼','RH / Paie'],['parametres','⚙️','Paramètres']]]
 ];
 function buildNav(){
   let h='';for(const [grp,items] of NAV){h+=`<div class="nav-grp">${grp}</div>`;
