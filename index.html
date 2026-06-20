@@ -3212,10 +3212,10 @@ PAGES.appro=async()=>{
     ${cmds.map(c=>{const f=fs.find(x=>x.id===c.fournId);
       return `<tr><td class="bold">${esc(c.num)}</td><td>${fmtD(c.date)}</td><td>${esc(f?.nom||'?')}</td>
       <td class="right">${FCFA(c.totalHT)}</td>
-      <td><span class="tag ${({brouillon:'t-gris',envoyee:'t-bleu',recue:'t-vert'})[c.statut]}">${c.statut}</span></td>
+      <td><span class="tag ${({brouillon:'t-gris',envoyee:'t-bleu',partiel:'t-orange',recue:'t-vert'})[c.statut]}">${c.statut}</span></td>
       <td>${c.statut!=='recue'?`<button class="btn-b btn-sm" onclick="recevoirCmd('${c.id}')">Réceptionner</button>`:''}
-          ${c.statut!=='recue'?`<button class="btn-g btn-sm" onclick="cmdAchatModal('${c.id}')">Éditer</button>`:''}
-          ${c.statut==='recue'?`<button class="btn-p btn-sm" onclick="reglFournModal('${c.id}')">Régler</button>`:''}
+          ${(c.statut==='brouillon'||c.statut==='envoyee')?`<button class="btn-g btn-sm" onclick="cmdAchatModal('${c.id}')">Éditer</button>`:''}
+          ${(c.statut==='recue'||c.statut==='partiel')?`<button class="btn-p btn-sm" onclick="reglFournModal('${c.id}')">Régler</button>`:''}
           <button class="btn-g btn-sm" onclick="voirCmdAchat('${c.id}')">Voir</button>
           <button class="btn-r btn-sm" onclick="supprimerCmdAchat('${c.id}')">Suppr.</button></td></tr>`;}).join('')
     ||'<tr><td colspan=6 class="empty">Aucune commande</td></tr>'}
@@ -3260,25 +3260,30 @@ async function saveCmdAchat(id){
   else{const num=await nextSeq('cmdAchat');await dbPut('cmdAchat',{id:uid(),num:'CA-'+num,fournId:val('ca-fourn'),date:val('ca-date'),lignes,totalHT,statut:'envoyee'});}
   closeModal();toast('Commande enregistrée');go('appro');
 }
-async function recevoirCmd(id){const c=await dbGet('cmdAchat',id);
-  modal('Réception — '+c.num,`<p class="sm txt-m">Réception au dépôt : <b>${esc((await dbAll('depots')).find(d=>d.id===STATE.depot)?.nom)}</b></p>
-   <p>Confirmer l'entrée en stock des quantités commandées et générer l'écriture d'achat ?</p>`,
+async function recevoirCmd(id){const c=await dbGet('cmdAchat',id);const dep=(await dbAll('depots')).find(d=>d.id===STATE.depot);
+  let rows='';for(const l of c.lignes){const p=await dbGet('produits',l.produitId);const recu=l.qteRecue||0;const reste=l.qte-recu;
+    rows+=`<tr><td>${esc(p?.nom)}</td><td class="right">${FCFA0(l.qte)}</td><td class="right txt-m">${FCFA0(recu)}</td>
+     <td class="right bold">${FCFA0(reste)}</td><td><input type="number" id="rcq-${l.produitId}" value="${reste}" min="0" max="${reste}" style="width:90px"></td></tr>`;}
+  modal('Réception — '+c.num,`<p class="sm txt-m">Dépôt : <b>${esc(dep?.nom||'')}</b>. Réception partielle possible — l'écriture d'achat ne porte que sur les quantités reçues.</p>
+   <table><tr><th>Produit</th><th class="right">Cmdé</th><th class="right">Déjà reçu</th><th class="right">Reste</th><th>À recevoir</th></tr>${rows}</table>`,
    `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-p" onclick="confirmRecep('${id}')">Réceptionner</button>`);
+    <button class="btn-p" onclick="confirmRecep('${id}')">Réceptionner</button>`,true);
 }
-async function confirmRecep(id){const c=await dbGet('cmdAchat',id);const f=await dbGet('fournisseurs',c.fournId);
-  for(const l of c.lignes){const p=await dbGet('produits',l.produitId);
-    const lot=await dbPut('lots',{id:uid(),produitId:l.produitId,numLot:'LOT-'+c.num+'-'+l.produitId.slice(-3),
-      datePeremption:(new Date().getFullYear()+2)+'-12-31',qteInitiale:l.qte,fournisseurId:c.fournId,dateReception:today()});
-    await mouvStock(l.produitId,STATE.depot,l.qte,'entree','Récep. '+c.num);}
-  // écriture SYSCOHADA : 601 D / 4452 TVA D / 401 C
-  const ht=c.totalHT;const tva=c.lignes.reduce((a,l)=>{const pr=0;return a;},0);
-  await ecrire('ACH',today(),'Achat marchandises '+c.num,[
-    {compte:'601',debit:ht,credit:0},
-    {compte:'4452',debit:Math.round(ht*0.02),credit:0},
-    {compte:'401',debit:0,credit:ht+Math.round(ht*0.02)}],c.num);
-  c.statut='recue';c.dateRecep=today();await dbPut('cmdAchat',c);
-  closeModal();toast('Réception + écriture comptable OK');go('appro');
+async function confirmRecep(id){const c=await dbGet('cmdAchat',id);let htRecu=0;const recus=[];
+  for(const l of c.lignes){const reste=l.qte-(l.qteRecue||0);let q=num('rcq-'+l.produitId);q=Math.max(0,Math.min(q,reste));
+    if(q>0)recus.push({l,q});}
+  if(!recus.length){toast('Aucune quantité reçue');return;}
+  for(const {l,q} of recus){
+    await dbPut('lots',{id:uid(),produitId:l.produitId,numLot:'LOT-'+c.num+'-'+l.produitId.slice(-3),
+      datePeremption:(new Date().getFullYear()+2)+'-12-31',qteInitiale:q,fournisseurId:c.fournId,dateReception:today()});
+    await mouvStock(l.produitId,STATE.depot,q,'entree','Récep. '+c.num);
+    l.qteRecue=(l.qteRecue||0)+q;htRecu+=q*l.pu;}
+  const tva=Math.round(htRecu*0.02);const complet=c.lignes.every(l=>(l.qteRecue||0)>=l.qte);
+  await ecrire('ACH',today(),'Achat '+c.num+(complet?'':' (partiel)'),[
+    {compte:'601',debit:htRecu,credit:0},{compte:'4452',debit:tva,credit:0},
+    {compte:'401',debit:0,credit:htRecu+tva}],c.num);
+  c.statut=complet?'recue':'partiel';c.dateRecep=today();await dbPut('cmdAchat',c);
+  closeModal();toast('Réception '+(complet?'complète':'partielle')+' + écriture comptable');go('appro');
 }
 async function voirCmdAchat(id){const c=await dbGet('cmdAchat',id);const prods=await dbAll('produits');
   modal('Commande '+c.num,`<table><tr><th>Produit</th><th class="right">Qté</th><th class="right">P.U.</th><th class="right">Total</th></tr>
@@ -3347,10 +3352,10 @@ PAGES.commandes=async()=>{
     ${cmds.map(c=>{const cl=cls.find(x=>x.id===c.clientId);
      return `<tr><td class="bold">${esc(c.num)}</td><td>${fmtD(c.date)}</td><td>${esc(cl?.nom||'?')}</td>
      <td class="right">${FCFA(c.totalHT)}</td>
-     <td><span class="tag ${({devis:'t-gris',confirmee:'t-bleu',livree:'t-vert',facturee:'t-violet'})[c.statut]}">${c.statut}</span></td>
+     <td><span class="tag ${({devis:'t-gris',confirmee:'t-bleu',partiel:'t-orange',livree:'t-vert',facturee:'t-violet'})[c.statut]}">${c.statut}</span></td>
      <td>${c.statut==='devis'?`<button class="btn-p btn-sm" onclick="confirmerDevis('${c.id}')">✓ Commande ferme</button>`:''}
-        ${c.statut==='confirmee'?`<button class="btn-b btn-sm" onclick="livrerCmd('${c.id}')">Livrer</button>`:''}
-        ${c.statut==='livree'?`<button class="btn-p btn-sm" onclick="facturerCmd('${c.id}')">Facturer</button>`:''}
+        ${(c.statut==='confirmee'||c.statut==='partiel')?`<button class="btn-b btn-sm" onclick="livrerCmd('${c.id}')">Livrer</button>`:''}
+        ${(c.lignes||[]).some(l=>(l.qteLivree||0)>(l.qteFacturee||0))?`<button class="btn-p btn-sm" onclick="facturerCmd('${c.id}')">Facturer</button>`:''}
         ${(c.statut==='devis'||c.statut==='confirmee')?`<button class="btn-g btn-sm" onclick="cmdClientModal('${c.id}')">Éditer</button>`:''}
         <button class="btn-g btn-sm" onclick="voirCmdClient('${c.id}')">Voir</button>
         <button class="btn-r btn-sm" onclick="supprimerCmdClient('${c.id}')">Suppr.</button></td></tr>`;}).join('')
@@ -3420,26 +3425,37 @@ async function saveCmdClient(statut,id){const lignes=LIGNES.filter(l=>l.qte>0);
   closeModal();toast('Commande '+statut);go('commandes');
 }
 async function livrerCmd(id){const c=await dbGet('cmdClient',id);
-  // vérif stock
-  for(const l of c.lignes){const stk=await stockProduit(l.produitId,c.depotId);
-    if(stk<l.qte){toast('Stock insuffisant: '+(await dbGet('produits',l.produitId)).nom);return;}}
   const emps=(await dbAll('employes')).filter(e=>e.commission);const cl=await dbGet('clients',c.clientId);
-  modal('Bon de livraison — '+c.num,`
-   <div class="fld"><label>Commercial / livreur</label><select id="lv-com">
+  let rows='';
+  for(const l of c.lignes){const p=await dbGet('produits',l.produitId);const livre=l.qteLivree||0;const reste=l.qte-livre;
+    const stk=await stockProduit(l.produitId,c.depotId);const def=Math.max(0,Math.min(reste,stk));
+    rows+=`<tr><td>${esc(p?.nom)}</td><td class="right">${FCFA0(l.qte)}</td><td class="right txt-m">${FCFA0(livre)}</td>
+     <td class="right bold">${FCFA0(reste)}</td><td class="sm ${stk<reste?'txt-r':'txt-m'}">${FCFA0(stk)}</td>
+     <td><input type="number" id="lvq-${l.produitId}" value="${def}" min="0" max="${reste}" style="width:90px"></td></tr>`;}
+  modal('Livraison — '+c.num,`
+   <div class="row"><div class="fld f"><label>Commercial / livreur</label><select id="lv-com">
      ${emps.map(e=>`<option value="${e.id}" ${e.zone===cl.zone?'selected':''}>${esc(e.nom)} (${esc(e.zone)})</option>`).join('')}</select></div>
-   <div class="fld"><label>Mode transport</label><select id="lv-trans">
-     <option>Tricycle</option><option>Pick-up</option><option>Camionnette</option><option>Retrait client</option></select></div>
-   <p class="sm txt-m">Déstockage automatique au dépôt courant + génération BL.</p>`,
+    <div class="fld f"><label>Mode transport</label><select id="lv-trans">
+     <option>Tricycle</option><option>Pick-up</option><option>Camionnette</option><option>Retrait client</option></select></div></div>
+   <table><tr><th>Produit</th><th class="right">Cmdé</th><th class="right">Déjà livré</th><th class="right">Reste</th><th class="right">Stock</th><th>À livrer</th></tr>${rows}</table>
+   <p class="sm txt-m">Saisissez les quantités à livrer (livraison partielle possible). Déstockage + BL automatiques.</p>`,
    `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-b" onclick="confirmLivraison('${id}')">Valider livraison</button>`);
+    <button class="btn-b" onclick="confirmLivraison('${id}')">Valider la livraison</button>`,true);
 }
-async function confirmLivraison(id){const c=await dbGet('cmdClient',id);
-  for(const l of c.lignes)await mouvStock(l.produitId,c.depotId,l.qte,'sortie','Livraison '+c.num);
-  const num=await nextSeq('BL');
-  await dbPut('livraisons',{id:uid(),num:'BL-'+num,cmdId:id,clientId:c.clientId,date:today(),
-    commercialId:val('lv-com'),transport:val('lv-trans'),lignes:c.lignes,statut:'livree'});
-  c.statut='livree';c.commercialId=val('lv-com');await dbPut('cmdClient',c);
-  closeModal();toast('Livraison validée (BL-'+num+')');go('commandes');
+async function confirmLivraison(id){const c=await dbGet('cmdClient',id);const lignesBL=[];
+  for(const l of c.lignes){const reste=l.qte-(l.qteLivree||0);let q=num('lvq-'+l.produitId);q=Math.max(0,Math.min(q,reste));
+    if(q<=0)continue;const stk=await stockProduit(l.produitId,c.depotId);
+    if(q>stk){toast('Stock insuffisant: '+(await dbGet('produits',l.produitId)).nom);return;}
+    lignesBL.push({produitId:l.produitId,qte:q,pu:l.pu,tva:l.tva});}
+  if(!lignesBL.length){toast('Aucune quantité à livrer');return;}
+  for(const lb of lignesBL){await mouvStock(lb.produitId,c.depotId,lb.qte,'sortie','Livraison '+c.num);
+    const li=c.lignes.find(x=>x.produitId===lb.produitId);li.qteLivree=(li.qteLivree||0)+lb.qte;}
+  const n=await nextSeq('BL');
+  await dbPut('livraisons',{id:uid(),num:'BL-'+n,cmdId:id,clientId:c.clientId,date:today(),
+    commercialId:val('lv-com'),transport:val('lv-trans'),lignes:lignesBL,statut:'livree'});
+  const complet=c.lignes.every(l=>(l.qteLivree||0)>=l.qte);
+  c.statut=complet?'livree':'partiel';c.commercialId=val('lv-com');await dbPut('cmdClient',c);
+  closeModal();toast('Livraison BL-'+n+(complet?' (complète)':' (partielle)'));go('commandes');
 }
 async function voirCmdClient(id){const c=await dbGet('cmdClient',id);const prods=await dbAll('produits');
   modal('Commande '+c.num,`<table><tr><th>Produit</th><th class="right">Qté</th><th class="right">P.U.</th><th class="right">Total</th></tr>
@@ -3528,9 +3544,14 @@ async function facturerCmd(id){
     <button class="btn-p" onclick="doFacturerCmd('${id}')">Générer</button>`);
 }
 async function doFacturerCmd(id){const c=await dbGet('cmdClient',id);const type=val('ft-type');
-  await genererFacture(c.clientId,c.lignes,id,type);
-  c.statut='facturee';await dbPut('cmdClient',c);
-  closeModal();toast((type==='fne'?'FNE':'Facture')+' générée + écriture vente');go('factures');
+  const lignesF=[];for(const l of c.lignes){const base=(l.qteLivree!=null?l.qteLivree:l.qte);const aFact=base-(l.qteFacturee||0);
+    if(aFact>0)lignesF.push({produitId:l.produitId,qte:aFact,pu:l.pu,tva:l.tva});}
+  if(!lignesF.length){toast('Rien à facturer (déjà facturé)');return;}
+  await genererFacture(c.clientId,lignesF,id,type);
+  for(const l of c.lignes){const lf=lignesF.find(x=>x.produitId===l.produitId);if(lf)l.qteFacturee=(l.qteFacturee||0)+lf.qte;}
+  const toutFact=c.lignes.every(l=>(l.qteFacturee||0)>=l.qte);
+  c.statut=toutFact?'facturee':c.statut;await dbPut('cmdClient',c);
+  closeModal();toast((type==='fne'?'FNE':'Facture')+' générée'+(toutFact?'':' (partielle)'));go('factures');
 }
 async function genererFacture(clientId,lignes,cmdId,type){
   type=type||'simple';
@@ -4861,19 +4882,8 @@ async function genererDemo(){
 /* ====== COMPTES TIERS & FACILITÉS DE PAIEMENT ====== */
 let ECH=[];
 /* ====== COMPTABILITÉ DES TIERS (clients 411 + fournisseurs 401) ====== */
-function ttcAchat(c){return (c.totalHT||0)+Math.round((c.totalHT||0)*0.02);}
-async function reglFournModal(cmdId){const c=await dbGet('cmdAchat',cmdId);const f=await dbGet('fournisseurs',c.fournId);
-  const ttc=ttcAchat(c);const paye=(await dbAll('reglFourn')).filter(r=>r.cmdId===cmdId).reduce((a,r)=>a+r.montant,0);
-  const reste=ttc-paye;
-  modal('Règlement fournisseur — '+c.num,`
-   <p class="sm">Fournisseur : <b>${esc(f?.nom||'')}</b><br>Montant TTC ${FCFA(ttc)} • Déjà payé ${FCFA(paye)} • Reste <b>${FCFA(reste)}</b></p>
-   <div class="row"><div class="fld f"><label>Montant</label><input id="rf-mt" type="number" value="${reste>0?reste:0}"></div>
-    <div class="fld f"><label>Moyen</label><select id="rf-mode">
-      <option value="571">Espèces (caisse)</option><option value="531">Mobile Money</option><option value="521">Banque</option></select></div>
-    <div class="fld f"><label>Date</label><input id="rf-date" type="date" value="${today()}"></div></div>`,
-   `<button class="btn-g" onclick="closeModal()">Annuler</button>
-    <button class="btn-p" onclick="saveReglFourn('${cmdId}')">Enregistrer le paiement</button>`);
-}
+function ttcAchat(c){const htRecu=(c.lignes||[]).reduce((a,l)=>a+((l.qteRecue||0)*l.pu),0);
+  const ht=htRecu>0?htRecu:(c.totalHT||0);return ht+Math.round(ht*0.02);}
 async function saveReglFourn(cmdId){const c=await dbGet('cmdAchat',cmdId);const mt=num('rf-mt');const mode=val('rf-mode');
   if(mt<=0)return;const date=val('rf-date')||today();
   const ec=await ecrire('TRE',date,'Règlt fourn. '+c.num,[
@@ -4911,7 +4921,7 @@ async function releveFournSelect(){const fs=await dbAll('fournisseurs');
 }
 async function releveFourn(fid){if(!fid){document.getElementById('rvf-body').innerHTML='';return;}
   const f=await dbGet('fournisseurs',fid);
-  const cmds=(await dbAll('cmdAchat')).filter(c=>c.fournId===fid&&c.statut==='recue');
+  const cmds=(await dbAll('cmdAchat')).filter(c=>c.fournId===fid&&(c.statut==='recue'||c.statut==='partiel'));
   const regs=(await dbAll('reglFourn')).filter(r=>r.fournId===fid);
   let lines=[];
   cmds.forEach(c=>lines.push({date:c.dateRecep||c.date,libelle:'Achat '+c.num,debit:0,credit:ttcAchat(c)}));
@@ -4943,7 +4953,7 @@ async function imprimerReleveFourn(){const {f,lines,solde}=window._releveF;const
 async function balanceTiers(){
   const cls=await dbAll('clients'),fs=await dbAll('fournisseurs');
   const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');
-  const cmds=(await dbAll('cmdAchat')).filter(c=>c.statut==='recue');
+  const cmds=(await dbAll('cmdAchat')).filter(c=>c.statut==='recue'||c.statut==='partiel');
   const regsF=await dbAll('reglFourn');
   const cliRows=cls.map(cl=>{const fl=facs.filter(f=>f.clientId===cl.id);
     const solde=fl.reduce((a,f)=>a+(f.totalTTC-(f.regle||0)),0);return {nom:cl.nom,solde};})
