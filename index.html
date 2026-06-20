@@ -106,7 +106,149 @@ tr:hover td{background:#f8fafc}
 .badge-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .progress{height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden}
 .progress>i{display:block;height:100%;background:var(--vert)}
-@media(max-width:860px){.sidebar{position:fixed;left:-210px;z-index:200;transition:.2s}.sidebar.open{left:0}.main{max-width:100vw}}
+@media(max-width:860px){.sidebar{position:fixed;left:-222px;z-index:200;transition:.2s}.sidebar.open{left:0}.main{max-width:100vw}}
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE MOBILE — Tablette & Téléphone
+   Breakpoints : 860px (tablette), 540px (phone)
+   ═══════════════════════════════════════════ */
+
+/* ── Bouton hamburger ── */
+.ham-btn{display:none;flex-direction:column;justify-content:center;align-items:center;
+  width:40px;height:40px;border-radius:8px;background:transparent;border:none;
+  cursor:pointer;gap:5px;padding:0;margin-right:8px;flex-shrink:0}
+.ham-btn span{display:block;width:22px;height:2px;background:var(--vert);border-radius:2px;
+  transition:all .25s}
+.ham-btn.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.ham-btn.open span:nth-child(2){opacity:0;transform:scaleX(0)}
+.ham-btn.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+/* ── Overlay sidebar mobile ── */
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:199;backdrop-filter:blur(1px)}
+.sidebar-overlay.show{display:block}
+
+/* ── Barre de navigation bottom (phone uniquement) ── */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;
+  background:var(--nuit);border-top:1px solid rgba(255,255,255,.08);
+  height:60px;z-index:150;padding:0 4px;
+  align-items:stretch;justify-content:space-around}
+.bottom-nav .bn-item{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;flex:1;gap:2px;cursor:pointer;
+  color:#8ba59a;font-size:10px;font-weight:600;letter-spacing:.3px;
+  padding:6px 2px;border-top:2px solid transparent;transition:all .15s;min-width:0}
+.bottom-nav .bn-item.on{color:var(--vert2);border-top-color:var(--vert2)}
+.bottom-nav .bn-item .bn-ic{font-size:20px;line-height:1}
+.bottom-nav .bn-item .bn-lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:56px}
+.bottom-nav .bn-item .bn-badge{background:var(--rouge);color:#fff;font-size:9px;font-weight:700;
+  border-radius:8px;min-width:14px;height:14px;display:flex;align-items:center;justify-content:center;
+  padding:0 3px;margin-top:-4px;align-self:flex-end;margin-right:-2px}
+
+@media(max-width:860px){
+  /* Hamburger visible */
+  .ham-btn{display:flex}
+  /* Sidebar masquée par défaut, overlay visible quand ouverte */
+  .sidebar{position:fixed;left:-240px;width:240px;z-index:200;transition:left .22s ease;top:56px;height:calc(100vh - 56px)}
+  .sidebar.open{left:0;box-shadow:4px 0 24px rgba(0,0,0,.25)}
+  .main{max-width:100vw;padding:14px 12px}
+  /* Topbar compacte */
+  .topbar{padding:0 10px;height:52px}
+  .brand{font-size:16px}
+  /* Masquer le sélecteur de dépôt dans la topbar (accessible via sidebar) */
+  .depot-sel{display:none}
+  /* user-chip : avatar + bouton quitter seulement */
+  .user-chip .bold,.user-chip .sm{display:none}
+  /* Modal plein écran sur tablette */
+  .modal-bg{padding:10px 8px}
+  .modal,.modal.lg{max-width:100%}
+  .modal-b{max-height:75vh}
+  /* Notification panel adapté */
+  .notif-panel{width:calc(100vw - 20px);right:10px}
+  /* Tableau scroll horizontal */
+  .card{overflow-x:auto}
+  table{min-width:480px}
+  /* KPIs 2 colonnes */
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  /* Toolbar wrap */
+  .toolbar{gap:6px}
+  .toolbar input,.toolbar select{min-width:130px}
+  /* Tabs scroll horizontal */
+  .tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;padding-bottom:1px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{white-space:nowrap;flex-shrink:0}
+  /* Page header flex wrap */
+  .page-h{gap:8px}
+  .page-h h1{font-size:17px}
+  /* Cartes map hauteur réduite */
+  #osm-map{height:300px !important}
+  #camp-map{height:280px !important}
+  /* Bottom nav */
+  .bottom-nav{display:flex}
+  /* Décaler le contenu pour la bottom nav */
+  .main{padding-bottom:72px}
+}
+
+@media(max-width:540px){
+  /* Phone portrait */
+  body{font-size:13px}
+  .topbar{height:48px;padding:0 8px}
+  .brand{font-size:14px;letter-spacing:.5px}
+  /* Label "by Sanix Africa" masqué */
+  .topbar>span:nth-child(2){display:none}
+  /* KPIs 1 colonne */
+  .kpis{grid-template-columns:1fr}
+  .kpi .val{font-size:20px}
+  /* Main padding minimal */
+  .main{padding:10px 8px;padding-bottom:72px}
+  /* Modals plein écran total */
+  .modal-bg{padding:0;align-items:flex-end}
+  .modal,.modal.lg{border-radius:16px 16px 0 0;max-height:94vh}
+  .modal-b{max-height:68vh}
+  /* Formulaires : champs full width en colonne */
+  .row{flex-direction:column;gap:8px}
+  .f{min-width:0}
+  /* Masquer colonnes secondaires tables */
+  td.hide-phone,th.hide-phone{display:none}
+  /* Boutons en bas collants */
+  .modal-f{flex-wrap:wrap;gap:6px}
+  .modal-f button,.modal-f a{flex:1;min-width:120px;text-align:center}
+  /* Page header colonne */
+  .page-h{flex-direction:column;align-items:flex-start;gap:6px}
+  .page-h .sp{display:none}
+  /* Tabs font réduit */
+  .tab{padding:7px 10px;font-size:12px}
+  /* Map plein largeur */
+  #osm-map{height:250px !important}
+  #camp-map{height:220px !important}
+  /* Carte & itinéraire : légende wrap */
+  .carte-legend{flex-direction:column;gap:4px}
+  /* Inputs touch-friendly */
+  input,select,textarea{font-size:16px !important;padding:10px 12px}
+  button{padding:10px 14px;font-size:13px}
+  .btn-sm{padding:8px 10px;font-size:12px}
+  /* Sidebar plus large sur petit écran */
+  .sidebar{width:85vw;max-width:300px;left:calc(-85vw);left:calc(-85vw - 10px)}
+  .sidebar.open{left:0}
+  /* Leaflet controls touch */
+  .leaflet-control-zoom a{width:34px !important;height:34px !important;line-height:34px !important;font-size:18px !important}
+  /* Notification panel */
+  .notif-panel{width:100vw;right:0;border-radius:12px 12px 0 0;top:auto;bottom:0;max-height:80vh}
+}
+
+/* ── Tactile : zones de clic agrandies ── */
+@media(pointer:coarse){
+  .nav-item{padding:12px 18px}
+  th,td{padding:10px 8px}
+  .btn-sm{padding:8px 12px}
+  select{padding:10px 8px}
+}
+
+/* ── Badges navigation sidebar ── */
+.nav-badge{display:inline-block;background:var(--rouge);color:#fff;font-size:10px;
+  font-weight:700;border-radius:10px;min-width:16px;height:16px;
+  text-align:center;line-height:16px;padding:0 4px;margin-left:auto}
+.nav-badge.b-orange{background:var(--orange)}
+.nav-badge.b-bleu{background:var(--bleu2)}
 
 /* ═══════════════════════════════════════════════
    SANIX AFRICA — SIGNATURE OFFICIELLE DU LOGICIEL
@@ -215,7 +357,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
 /* Onglets accent cuivre */
 .tabs .tab.on{color:var(--cuivre);border-bottom-color:var(--cuivre)}
 .page-h h1{letter-spacing:-.3px}
-@media(max-width:860px){.sidebar{left:-222px;width:222px}.sidebar.open{left:0}.main{max-width:100vw}}
+
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -252,6 +394,9 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
 <!-- APP -->
 <div id="app">
   <div class="topbar">
+    <button class="ham-btn" id="hamBtn" onclick="toggleSidebar()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
     <div class="brand"><span class="v">PSF</span> <span class="b">ERP</span></div>
     <span style="font-size:10px;color:#94a3b8;margin-left:10px;font-weight:600;letter-spacing:.4px;white-space:nowrap" title="Conçu par Sanix Africa Division Technologies — +225 07 79 10 81 07 / 01 40 01 77 51">
       by <span style="color:#1d3f6e;font-weight:700;">Sanix Africa</span>
@@ -270,6 +415,8 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
       <button class="btn-g btn-sm" onclick="logout()" style="margin-left:8px">Quitter</button>
     </div>
   </div>
+  <!-- Overlay fermeture sidebar mobile -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
   <div class="layout">
     <div class="sidebar" id="sidebar">
       <!-- ── SIGNATURE SIDEBAR ── -->
@@ -285,6 +432,8 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
     </div>
     <div class="main" id="main"></div>
   </div>
+  <!-- Bottom nav (phone) — rempli par buildNav() -->
+  <nav class="bottom-nav" id="bottomNav"></nav>
 </div>
 
 <!-- ── PIED DE PAGE IMPRESSION SANIX AFRICA ── -->
@@ -2619,9 +2768,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn'];
+'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn','audit'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',8);
+  const r=indexedDB.open('PSF_ERP',9);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -2633,6 +2782,11 @@ function dbPut(s,v){if(!v.id)v.id=uid();return new Promise(r=>{const o=tx(s,'rea
 function dbDel(s,id){return new Promise(r=>{const o=tx(s,'readwrite').delete(id);o.onsuccess=()=>r();});}
 async function nextSeq(k){let s=await dbGet('seq',k);if(!s)s={id:k,n:0};s.n++;await dbPut('seq',s);
   return String(s.n).padStart(4,'0');}
+async function logAudit(action,entite,entiteId,detail){
+  try{await dbPut('audit',{id:uid(),date:new Date().toISOString(),
+    userId:STATE.user?.id||null,userNom:STATE.user?.nom||'Système',
+    action,entite:entite||'',entiteId:entiteId||'',detail:detail||''});}catch(e){}
+}
 
 /* ====== PLAN COMPTABLE SYSCOHADA ====== */
 const PLAN=[
@@ -2763,6 +2917,9 @@ function num(id){return parseFloat(val(id))||0;}
 function confirmDel(msg,cb){modal('Confirmation',`<p>${esc(msg)}</p>`,
   `<button class="btn-g" onclick="closeModal()">Annuler</button>
    <button class="btn-r" onclick="(${cb})();closeModal()">Supprimer</button>`);}
+function confirmAction(msg,label,cb){modal('Confirmation',`<p>${esc(msg)}</p>`,
+  `<button class="btn-g" onclick="closeModal()">Annuler</button>
+   <button class="btn-p" onclick="(${cb})();closeModal()">${esc(label)}</button>`);}
 
 /* ====== NOTIFICATIONS / ALERTES INTERNES ====== */
 const NOTIF_DEFS={
@@ -2888,6 +3045,7 @@ async function login(){
   const usr=users.find(x=>x.login===u&&x.pass===p&&x.actif);
   if(!usr){document.getElementById('lg-err').style.display='block';return;}
   STATE.user=usr;
+  await logAudit('connexion','utilisateurs',usr.id,usr.nom+' ('+usr.role+') connecté');
   const deps=await dbAll('depots');STATE.depot=deps.find(d=>d.principal)?.id||deps[0]?.id;
   document.getElementById('login').style.display='none';
   document.getElementById('app').style.display='block';
@@ -2944,14 +3102,23 @@ function go(page){STATE.page=page;
   (PAGES[page]||PAGES.dashboard)();refreshNavBadges();}
 
 /* ====== MOTEUR COMPTABLE ====== */
-async function ecrire(journal,date,libelle,lignes,piece){
+async function ecrire(journal,date,libelle,lignes,piece,extra){
   // lignes: [{compte, debit, credit}]
-  const ex=(await dbAll('exercices')).find(e=>e.actif);
-  const e={id:uid(),journal,date,libelle,piece:piece||'',exercice:ex?.id,lignes};
+  const exs=await dbAll('exercices');
+  const ex=exs.find(e=>e.actif);
+  if(ex&&ex.cloture){
+    toast('⛔ Exercice '+ex.annee+' clôturé — saisie comptable bloquée. Ouvrez/activez un exercice non clôturé.');
+    throw new Error('EXERCICE_CLOTURE');
+  }
+  const seqKey='ec-'+journal+'-'+(ex?ex.annee:'NA');
+  const numero=journal+'-'+(ex?ex.annee:'NA')+'-'+await nextSeq(seqKey);
+  const e=Object.assign({id:uid(),journal,numero,date,libelle,piece:piece||'',exercice:ex?.id,lignes,
+    creeParId:STATE.user?.id||null,creeParNom:STATE.user?.nom||'Système',creeLe:new Date().toISOString()},extra||{});
   await dbPut('ecritures',e);
   // mise à jour soldes comptes
   for(const l of lignes){const c=await dbGet('comptes',l.compte);
     if(c){c.solde=(c.solde||0)+(l.debit||0)-(l.credit||0);await dbPut('comptes',c);}}
+  await logAudit('creation_ecriture','ecritures',e.id,numero+' — '+libelle);
   return e;
 }
 async function balance(){
@@ -3758,20 +3925,23 @@ PAGES.compta=async()=>{
     <div class="tab" onclick="tabCompta('bilan',this)">Bilan</div>
     <div class="tab" onclick="tabCompta('rappro',this)">Rapprochement bancaire</div>
     <div class="tab" onclick="tabCompta('agee',this)">Balance âgée</div>
+    <div class="tab" onclick="tabCompta('exercices',this)">Exercices</div>
+    <div class="tab" onclick="tabCompta('audit',this)">Audit</div>
    </div><div id="compta-body"></div>`);
   tabComptaRender('journal');
 };
 function tabCompta(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');tabComptaRender(t);}
 async function tabComptaRender(t){const box=document.getElementById('compta-body');
   if(t==='journal'){const ecs=(await dbAll('ecritures')).sort((a,b)=>b.id<a.id?-1:1).slice(0,60);
-    box.innerHTML=`<div class="card"><table><tr><th>Date</th><th>Jrnl</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th class="right">Débit</th><th class="right">Crédit</th><th></th></tr>
+    box.innerHTML=`<div class="card"><table><tr><th>N°</th><th>Date</th><th>Jrnl</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th class="right">Débit</th><th class="right">Crédit</th><th></th></tr>
      ${ecs.flatMap(e=>e.lignes.map((l,i)=>`<tr>
+      <td class="sm">${i===0?esc(e.numero||''):''}</td>
       <td>${i===0?fmtD(e.date):''}</td><td>${i===0?`<span class="tag t-gris">${e.journal}</span>`:''}</td>
       <td class="sm">${i===0?esc(e.piece):''}</td><td class="sm">${i===0?esc(e.libelle):''}</td>
       <td>${l.compte}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
       <td class="right">${l.credit?FCFA0(l.credit):''}</td>
-      <td>${i===0?`<button class="btn-r btn-sm" onclick="supprimerEcriture('${e.id}')">×</button>`:''}</td></tr>`)).join('')
-     ||'<tr><td colspan=8 class="empty">Aucune écriture</td></tr>'}</table></div>`;
+      <td>${i!==0?'':e.estExtourne?'<span class="tag t-gris">Extourne</span>':e.extournee?'<span class="tag t-orange">Extournée</span>':`<button class="btn-r btn-sm" onclick="supprimerEcriture('${e.id}')">×</button>`}</td></tr>`)).join('')
+     ||'<tr><td colspan=9 class="empty">Aucune écriture</td></tr>'}</table></div>`;
   }else if(t==='grandlivre'){const bal=await balance();
     box.innerHTML=`<div class="card"><table><tr><th>Compte</th><th>Libellé</th><th class="right">Débit</th><th class="right">Crédit</th><th class="right">Solde</th></tr>
      ${bal.filter(b=>b.debit||b.credit).map(b=>`<tr><td class="bold">${b.num}</td><td>${esc(b.lib)}</td>
@@ -3809,6 +3979,49 @@ async function tabComptaRender(t){const box=document.getElementById('compta-body
   else if(t==='bilan'){await renderBilan(box);}
   else if(t==='rappro'){await renderRappro(box);}
   else if(t==='agee'){await renderAgee(box);}
+  else if(t==='exercices'){await renderExercices(box);}
+  else if(t==='audit'){await renderAudit(box);}
+}
+async function renderExercices(box){
+  const exs=(await dbAll('exercices')).sort((a,b)=>b.annee-a.annee);
+  const dernier=exs[0];const prochain=dernier?dernier.annee+1:new Date().getFullYear();
+  box.innerHTML=`<div class="card"><div class="card-h">Exercices comptables</div>
+   <table><tr><th>Exercice</th><th>Période</th><th>Statut</th><th></th></tr>
+   ${exs.map(e=>`<tr><td class="bold">${e.annee}</td><td>${fmtD(e.debut)} → ${fmtD(e.fin)}</td>
+    <td>${e.actif?'<span class="tag t-bleu">Actif</span> ':''}${e.cloture?'<span class="tag t-rouge">Clôturé</span>':'<span class="tag t-vert">Ouvert</span>'}</td>
+    <td>${!e.cloture?`<button class="btn-r btn-sm" onclick="cloturerExercice('${e.id}')">Clôturer</button>`:
+      `<button class="btn-g btn-sm" onclick="reouvrirExercice('${e.id}')">Rouvrir</button>`}</td></tr>`).join('')
+   ||'<tr><td colspan=4 class="empty">Aucun exercice</td></tr>'}</table>
+   <p class="sm txt-m" style="margin-top:10px">Clôturer un exercice verrouille définitivement la saisie, la modification et l\u2019extourne d\u2019écritures sur cette période. Ouvrez le nouvel exercice avant de clôturer l\u2019ancien pour ne pas interrompre la saisie quotidienne.</p>
+   <button class="btn-b btn-sm" onclick="ouvrirNouvelExercice()" style="margin-top:8px">+ Ouvrir l\u2019exercice ${prochain}</button>
+   </div>`;
+}
+async function cloturerExercice(id){const e=await dbGet('exercices',id);if(!e)return;
+  confirmAction('Clôturer l\u2019exercice '+e.annee+' ? Plus aucune écriture ne pourra être créée, modifiée ou extournée sur cette période une fois clôturée. Assurez-vous d\u2019avoir ouvert l\u2019exercice suivant.','Clôturer',
+   `async()=>{const e=await dbGet('exercices','${id}');e.cloture=true;await dbPut('exercices',e);
+     await logAudit('cloture_exercice','exercices','${id}','Clôture exercice '+e.annee);
+     toast('Exercice '+e.annee+' clôturé');go('compta')}`);}
+async function reouvrirExercice(id){const e=await dbGet('exercices',id);if(!e)return;
+  confirmAction('Rouvrir l\u2019exercice '+e.annee+' ? À réserver aux corrections exceptionnelles validées par votre expert-comptable — chaque réouverture est tracée dans l\u2019audit.','Rouvrir',
+   `async()=>{const e=await dbGet('exercices','${id}');e.cloture=false;await dbPut('exercices',e);
+     await logAudit('reouverture_exercice','exercices','${id}','Réouverture exercice '+e.annee);
+     toast('Exercice '+e.annee+' rouvert');go('compta')}`);}
+async function ouvrirNouvelExercice(){const exs=await dbAll('exercices');
+  const last=exs.sort((a,b)=>b.annee-a.annee)[0];const an=(last?last.annee:new Date().getFullYear())+1;
+  if(exs.find(e=>e.annee===an)){toast('Exercice '+an+' existe déjà');return;}
+  for(const e of exs){if(e.actif){e.actif=false;await dbPut('exercices',e);}}
+  const ne={id:'ex'+an,annee:an,debut:an+'-01-01',fin:an+'-12-31',cloture:false,actif:true};
+  await dbPut('exercices',ne);
+  await logAudit('ouverture_exercice','exercices',ne.id,'Ouverture exercice '+an);
+  toast('Exercice '+an+' ouvert et activé');go('compta');
+}
+async function renderAudit(box){
+  const logs=(await dbAll('audit')).sort((a,b)=>b.date<a.date?-1:1).slice(0,200);
+  box.innerHTML=`<div class="card"><div class="card-h">Piste d\u2019audit (200 derniers événements)</div>
+   <table><tr><th>Date/Heure</th><th>Utilisateur</th><th>Action</th><th>Entité</th><th>Détail</th></tr>
+   ${logs.map(l=>`<tr><td class="sm">${new Date(l.date).toLocaleString('fr-FR')}</td><td>${esc(l.userNom||'Système')}</td>
+    <td><span class="tag t-gris">${esc(l.action)}</span></td><td class="sm">${esc(l.entite)}</td><td class="sm">${esc(l.detail)}</td></tr>`).join('')
+   ||'<tr><td colspan=5 class="empty">Aucun événement</td></tr>'}</table></div>`;
 }
 async function ecritureModal(){const cs=await dbAll('comptes');LIGNES=[{compte:'',debit:0,credit:0},{compte:'',debit:0,credit:0}];
   const opts=cs.map(c=>`<option value="${c.num}">${c.num} — ${esc(c.libelle)}</option>`).join('');
@@ -3840,7 +4053,7 @@ function renderEcLignes(){const opts=document.getElementById('ec-opts').innerHTM
 async function saveEcriture(){const lignes=LIGNES.filter(l=>l.compte&&(l.debit||l.credit));
   const d=lignes.reduce((a,l)=>a+(+l.debit||0),0),c=lignes.reduce((a,l)=>a+(+l.credit||0),0);
   if(Math.abs(d-c)>1){toast('Écriture déséquilibrée');return;}
-  await ecrire(val('ec-jrn'),val('ec-date'),val('ec-lib'),lignes,'');
+  try{await ecrire(val('ec-jrn'),val('ec-date'),val('ec-lib'),lignes,'');}catch(e){return;}
   closeModal();toast('Écriture enregistrée');go('compta');
 }
 
@@ -5131,19 +5344,26 @@ async function saveEcheancier(id){const f=await dbGet('factures',id);f.echeancie
 
 
 /* ====== MODIFICATION / SUPPRESSION GÉNÉRALISÉE ====== */
-async function delEcriture(id){const e=await dbGet('ecritures',id);if(!e)return;
-  for(const l of e.lignes){const c=await dbGet('comptes',l.compte);
-    if(c){c.solde=(c.solde||0)-(l.debit||0)+(l.credit||0);await dbPut('comptes',c);}}
-  await dbDel('ecritures',id);}
+async function delEcriture(id){const e=await dbGet('ecritures',id);if(!e)return false;
+  if(e.estExtourne){toast('Écriture d\u2019extourne : non modifiable.');return false;}
+  if(e.extournee){toast('Cette écriture est déjà extournée.');return false;}
+  const ex=e.exercice?await dbGet('exercices',e.exercice):null;
+  if(ex&&ex.cloture){toast('⛔ Exercice '+ex.annee+' clôturé — extourne impossible.');return false;}
+  const inv=e.lignes.map(l=>({compte:l.compte,debit:l.credit||0,credit:l.debit||0}));
+  const rev=await ecrire(e.journal,today(),'EXTOURNE de '+(e.numero||e.id)+' — '+e.libelle,inv,e.piece,
+    {estExtourne:true,extourneDeId:e.id});
+  e.extournee=true;e.extourneParId=rev.id;await dbPut('ecritures',e);
+  await logAudit('extourne_ecriture','ecritures',e.id,(e.numero||e.id)+' extournée par '+rev.numero);
+  return true;}
 async function delEcrituresPiece(piece){if(!piece)return;
   const ecs=(await dbAll('ecritures')).filter(e=>e.piece===piece);
   for(const e of ecs)await delEcriture(e.id);}
-function supprimerEcriture(id){confirmDel('Supprimer cette écriture ? Les soldes des comptes seront réajustés.',
-  `async()=>{await delEcriture('${id}');toast('Écriture supprimée');go('compta')}`);}
+function supprimerEcriture(id){confirmAction('Extourner cette écriture ? Une écriture inverse (contre-passation) sera créée. L\u2019écriture d\u2019origine est conservée intacte — c\u2019est la règle d\u2019intangibilité comptable OHADA.','Extourner',
+  `async()=>{const ok=await delEcriture('${id}');if(ok)toast('Écriture extournée');go('compta')}`);}
 
 async function supprimerCmdAchat(id){const c=await dbGet('cmdAchat',id);
-  confirmDel('Supprimer la commande achat '+c.num+' ?'+(c.statut==='recue'?" L'écriture d'achat liée sera annulée (le stock reçu n'est pas retiré).":''),
-   `async()=>{await delEcrituresPiece('${c.num}');await dbDel('cmdAchat','${id}');toast('Commande supprimée');go('appro')}`);}
+  confirmDel('Supprimer la commande achat '+c.num+' ?'+(c.statut==='recue'?" L'écriture d'achat liée sera extournée (le stock reçu n'est pas retiré).":''),
+   `async()=>{await delEcrituresPiece('${c.num}');await dbDel('cmdAchat','${id}');await logAudit('suppression','cmdAchat','${id}','Commande achat '+'${c.num}'+' supprimée');toast('Commande supprimée');go('appro')}`);}
 async function supprimerCmdClient(id){const c=await dbGet('cmdClient',id);
   confirmDel('Supprimer la commande client '+c.num+' ? (livraisons/factures éventuelles non supprimées)',
    `async()=>{await dbDel('cmdClient','${id}');toast('Commande supprimée');go('commandes')}`);}
@@ -5161,14 +5381,15 @@ async function annulerFacture(id){const f=await dbGet('factures',id);
      const regs=(await dbAll('reglements')).filter(r=>r.factureId==='${id}');for(const r of regs)await dbDel('reglements',r.id);
      if(!f.cmdId){for(const l of f.lignes)await mouvStock(l.produitId,STATE.depot,l.qte,'entree','Annul. '+f.num);}
      f.statut='annulee';f.regle=0;f.echeancier=[];await dbPut('factures',f);
+     await logAudit('annulation','factures','${id}','Facture '+f.num+' annulée (extournée)');
      toast('Facture annulée (extournée)');go('factures')}`);}
 async function supprimerFacture(id){const f=await dbGet('factures',id);
-  confirmDel('Supprimer définitivement la facture '+f.num+' ? Écritures et règlements liés supprimés'+(!f.cmdId&&f.statut!=='annulee'?', stock réintégré':'')+'.',
+  confirmDel('Supprimer définitivement la facture '+f.num+' ? Écritures extournées et règlements liés supprimés'+(!f.cmdId&&f.statut!=='annulee'?', stock réintégré':'')+'.',
    `async()=>{const f=await dbGet('factures','${id}');
      await delEcrituresPiece(f.num);
      const regs=(await dbAll('reglements')).filter(r=>r.factureId==='${id}');for(const r of regs)await dbDel('reglements',r.id);
      if(!f.cmdId&&f.statut!=='annulee'){for(const l of f.lignes)await mouvStock(l.produitId,STATE.depot,l.qte,'entree','Suppr. '+f.num);}
-     await dbDel('factures','${id}');toast('Facture supprimée');go('factures')}`);}
+     await dbDel('factures','${id}');await logAudit('suppression','factures','${id}','Facture '+f.num+' supprimée');toast('Facture supprimée');go('factures')}`);}
 
 async function annulerReglement(id){const r=await dbGet('reglements',id);
   confirmDel('Annuler cet encaissement de '+FCFA(r.montant)+' ?',
@@ -6563,7 +6784,7 @@ async function saveReleve(){await dbPut('rapprochements',{id:RAP_CPT,soldeReleve
   toast('Relevé enregistré');renderRappro(document.getElementById('compta-body'));}
 async function fecExport(){const ecs=(await dbAll('ecritures')).sort((a,b)=>a.date<b.date?-1:1);
   let lines=['JournalCode|EcritureNum|EcritureDate|CompteNum|Libelle|Debit|Credit'];
-  ecs.forEach((e,n)=>e.lignes.forEach(l=>{lines.push([e.journal||'OD',e.piece||('E'+(n+1)),
+  ecs.forEach((e,n)=>e.lignes.forEach(l=>{lines.push([e.journal||'OD',e.numero||e.piece||('E'+(n+1)),
     (e.date||'').replace(/-/g,''),l.compte,(e.libelle||'').replace(/[|\n]/g,' '),l.debit||0,l.credit||0].join('|'));}));
   const blob=new Blob([lines.join('\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='FEC_PSF_'+today()+'.txt';a.click();toast('FEC exporté ('+(lines.length-1)+' lignes)');}
