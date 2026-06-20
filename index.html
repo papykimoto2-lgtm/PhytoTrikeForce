@@ -2592,9 +2592,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com','notifications'];
+'actions_mkg','objectifs_com','notifications','pointages','rapprochements'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',6);
+  const r=indexedDB.open('PSF_ERP',7);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -3624,12 +3624,15 @@ async function imprimerFacture(id){const f=await dbGet('factures',id);const cl=a
 
 /* ---- COMPTABILITÉ ---- */
 PAGES.compta=async()=>{
-  H(pageH('Comptabilité SYSCOHADA','<button class="btn-b" onclick="ecritureModal()">+ Écriture manuelle</button>')+`
+  H(pageH('Comptabilité SYSCOHADA','<button class="btn-g btn-sm" onclick="fecExport()">⬇️ Export FEC</button> <button class="btn-b" onclick="ecritureModal()">+ Écriture manuelle</button>')+`
    <div class="tabs">
     <div class="tab on" onclick="tabCompta('journal',this)">Journal</div>
     <div class="tab" onclick="tabCompta('grandlivre',this)">Grand livre</div>
     <div class="tab" onclick="tabCompta('balance',this)">Balance</div>
     <div class="tab" onclick="tabCompta('resultat',this)">Compte de résultat</div>
+    <div class="tab" onclick="tabCompta('bilan',this)">Bilan</div>
+    <div class="tab" onclick="tabCompta('rappro',this)">Rapprochement bancaire</div>
+    <div class="tab" onclick="tabCompta('agee',this)">Balance âgée</div>
    </div><div id="compta-body"></div>`);
   tabComptaRender('journal');
 };
@@ -3678,6 +3681,9 @@ async function tabComptaRender(t){const box=document.getElementById('compta-body
      <tr style="background:${rnet>=0?'#dcfce7':'#fee2e2'}"><td class="bold">RÉSULTAT NET</td><td class="right bold">${FCFA(rnet)}</td></tr>
     </table></div>`;
   }
+  else if(t==='bilan'){await renderBilan(box);}
+  else if(t==='rappro'){await renderRappro(box);}
+  else if(t==='agee'){await renderAgee(box);}
 }
 async function ecritureModal(){const cs=await dbAll('comptes');LIGNES=[{compte:'',debit:0,credit:0},{compte:'',debit:0,credit:0}];
   const opts=cs.map(c=>`<option value="${c.num}">${c.num} — ${esc(c.libelle)}</option>`).join('');
@@ -6048,6 +6054,99 @@ async function mkgRoi(box){
    :'<div class="empty">Clôturez des actions marketing pour voir leur classement ROI ici</div>'}
   </div>`;
 }
+
+
+/* ====== BILAN / RAPPROCHEMENT / BALANCE ÂGÉE / FEC ====== */
+let RAP_CPT='521';
+async function renderBilan(box){const bal=await balance();
+  const net=p=>bal.filter(b=>b.num.startsWith(p)).reduce((a,b)=>a+(b.debit-b.credit),0);
+  const g=cl=>bal.filter(b=>b.num.startsWith(cl)).reduce((a,b)=>a+(b.credit-b.debit),0);
+  const gd=cl=>bal.filter(b=>b.num.startsWith(cl)).reduce((a,b)=>a+(b.debit-b.credit),0);
+  const rnet=g('70')-gd('60')-gd('61')-gd('62')-gd('64')-gd('66')-gd('67')-gd('68');
+  const pos=v=>Math.max(0,v),neg=v=>Math.max(0,-v);
+  const actif=[['Immobilisations nettes (2)',pos(net('2'))],['Stocks (3)',pos(net('3'))],
+    ['Créances clients (41)',pos(net('41'))],['État - créances (44)',pos(net('44'))],
+    ['Autres débiteurs (42/43/47)',pos(net('42'))+pos(net('43'))+pos(net('47'))],['Trésorerie (5)',pos(net('5'))]];
+  const totA=actif.reduce((a,[,v])=>a+v,0);
+  const passif=[['Capital (10)',neg(net('10'))],['Réserves & report (11/12)',neg(net('11'))+neg(net('12'))],
+    ["Résultat net de l'exercice",rnet],['Emprunts & dettes fin. (16/17)',neg(net('16'))+neg(net('17'))],
+    ['Fournisseurs (40)',neg(net('40'))],['Dettes sociales (42/43)',neg(net('42'))+neg(net('43'))],
+    ['Dettes fiscales - État (44)',neg(net('44'))],['Trésorerie passive (5)',neg(net('5'))]];
+  const totP=passif.reduce((a,[,v])=>a+v,0);const ecart=totA-totP;
+  box.innerHTML=`<div class="row">
+   <div class="card f"><div class="card-h">ACTIF</div><table>
+     ${actif.map(([l,v])=>`<tr><td>${l}</td><td class="right">${FCFA(v)}</td></tr>`).join('')}
+     <tr style="background:#eef6ff"><td class="bold">TOTAL ACTIF</td><td class="right bold">${FCFA(totA)}</td></tr></table></div>
+   <div class="card f"><div class="card-h">PASSIF</div><table>
+     ${passif.map(([l,v])=>`<tr><td>${l}</td><td class="right ${l.indexOf('Résultat')>=0&&v<0?'txt-r':''}">${FCFA(v)}</td></tr>`).join('')}
+     <tr style="background:#eef6ff"><td class="bold">TOTAL PASSIF</td><td class="right bold">${FCFA(totP)}</td></tr></table></div>
+  </div>
+  ${Math.abs(ecart)>1?`<div class="card"><p class="sm txt-r">⚠️ Écart actif/passif : ${FCFA(ecart)}. Saisissez le capital d'ouverture et les à-nouveaux (écriture manuelle classe 10/11) pour équilibrer le bilan d'ouverture.</p></div>`:'<div class="card"><p class="sm txt-v">✓ Bilan équilibré.</p></div>'}`;
+}
+async function renderAgee(box){const facs=(await dbAll('factures')).filter(f=>f.statut!=='annulee');const cls=await dbAll('clients');
+  const now=Date.now();const buckets={};
+  facs.forEach(f=>{const reste=f.totalTTC-(f.regle||0);if(reste<=1)return;
+    const age=Math.floor((now-new Date(f.date).getTime())/864e5);
+    const b=age<=30?'0-30':age<=60?'31-60':age<=90?'61-90':'>90';
+    const cid=f.clientId;buckets[cid]=buckets[cid]||{'0-30':0,'31-60':0,'61-90':0,'>90':0,tot:0};
+    buckets[cid][b]+=reste;buckets[cid].tot+=reste;});
+  const rows=Object.entries(buckets).sort((a,b)=>b[1].tot-a[1].tot).map(([cid,b])=>{const cl=cls.find(c=>c.id===cid);
+    return `<tr><td>${esc(cl?.nom||'?')}</td><td class="right">${FCFA(b['0-30'])}</td><td class="right">${FCFA(b['31-60'])}</td>
+    <td class="right ${b['61-90']?'txt-m':''}">${FCFA(b['61-90'])}</td><td class="right ${b['>90']?'txt-r bold':''}">${FCFA(b['>90'])}</td>
+    <td class="right bold">${FCFA(b.tot)}</td></tr>`;});
+  const tot=k=>Object.values(buckets).reduce((a,b)=>a+b[k],0);
+  box.innerHTML=`<div class="card"><div class="card-h">Balance âgée des créances clients</div>
+   <table><tr><th>Client</th><th class="right">0-30 j</th><th class="right">31-60 j</th><th class="right">61-90 j</th><th class="right">+90 j</th><th class="right">Total dû</th></tr>
+   ${rows.join('')||'<tr><td colspan=6 class="empty">Aucune créance en cours</td></tr>'}
+   ${rows.length?`<tr style="background:#f1f5f9"><td class="bold">TOTAL</td><td class="right bold">${FCFA(tot('0-30'))}</td><td class="right bold">${FCFA(tot('31-60'))}</td><td class="right bold">${FCFA(tot('61-90'))}</td><td class="right bold">${FCFA(tot('>90'))}</td><td class="right bold">${FCFA(tot('0-30')+tot('31-60')+tot('61-90')+tot('>90'))}</td></tr>`:''}</table>
+   <p class="sm txt-m">Créances de plus de 90 jours : relance et recouvrement prioritaires.</p></div>`;
+}
+async function renderRappro(box){
+  const cs=(await dbAll('comptes')).filter(c=>c.num.startsWith('5')).sort((a,b)=>a.num<b.num?-1:1);
+  if(cs.length&&!cs.find(c=>c.num===RAP_CPT))RAP_CPT=cs[0].num;
+  const ecs=(await dbAll('ecritures')).sort((a,b)=>a.date<b.date?-1:1);
+  const pts=await dbAll('pointages');
+  const rapDoc=(await dbGet('rapprochements',RAP_CPT))||{soldeReleve:0,dateReleve:today()};
+  let lignes=[];ecs.forEach(e=>e.lignes.forEach((l,i)=>{if(l.compte===RAP_CPT)
+    lignes.push({key:e.id+':'+i,date:e.date,lib:e.libelle,piece:e.piece,debit:l.debit||0,credit:l.credit||0});}));
+  const isPointe=k=>pts.some(p=>p.id===RAP_CPT+'|'+k&&p.pointe);
+  const soldeCompta=lignes.reduce((a,l)=>a+l.debit-l.credit,0);
+  const soldePointe=lignes.reduce((a,l)=>a+(isPointe(l.key)?(l.debit-l.credit):0),0);
+  const nonP=lignes.filter(l=>!isPointe(l.key));
+  const ecart=soldeCompta-(+rapDoc.soldeReleve||0);
+  box.innerHTML=`<div class="card">
+    <div class="row"><div class="fld f"><label>Compte de trésorerie</label>
+      <select onchange="RAP_CPT=this.value;renderRappro(document.getElementById('compta-body'))">
+      ${cs.map(c=>`<option value="${c.num}" ${c.num===RAP_CPT?'selected':''}>${c.num} — ${esc(c.libelle)}</option>`).join('')||'<option>—</option>'}</select></div>
+     <div class="fld f"><label>Solde du relevé bancaire</label><input id="rap-solde" type="number" value="${rapDoc.soldeReleve||0}"></div>
+     <div class="fld f"><label>Date du relevé</label><input id="rap-date" type="date" value="${rapDoc.dateReleve||today()}"></div>
+     <div class="fld" style="align-self:flex-end"><button class="btn-b" onclick="saveReleve()">Enregistrer relevé</button></div></div>
+    <div class="grid kpis">
+     <div class="kpi bleu"><div class="lab">Solde comptable</div><div class="val">${FCFA(soldeCompta)}</div></div>
+     <div class="kpi vert"><div class="lab">Solde pointé</div><div class="val">${FCFA(soldePointe)}</div></div>
+     <div class="kpi orange"><div class="lab">Solde relevé</div><div class="val">${FCFA(+rapDoc.soldeReleve||0)}</div></div>
+     <div class="kpi ${Math.abs(ecart)<1?'vert':'rouge'}"><div class="lab">Écart comptable / relevé</div><div class="val">${FCFA(ecart)}</div></div>
+    </div></div>
+   <div class="card"><div class="card-h">Pointage des opérations — ${RAP_CPT}</div>
+    <table><tr><th>✓</th><th>Date</th><th>Libellé</th><th>Pièce</th><th class="right">Débit</th><th class="right">Crédit</th></tr>
+    ${lignes.map(l=>`<tr><td><input type="checkbox" ${isPointe(l.key)?'checked':''} onchange="togglePointage('${l.key}')"></td>
+      <td>${fmtD(l.date)}</td><td class="sm">${esc(l.lib)}</td><td class="sm txt-m">${esc(l.piece||'')}</td>
+      <td class="right">${l.debit?FCFA0(l.debit):''}</td><td class="right">${l.credit?FCFA0(l.credit):''}</td></tr>`).join('')
+    ||'<tr><td colspan=6 class="empty">Aucune opération sur ce compte</td></tr>'}</table></div>
+   ${nonP.length?`<div class="card"><div class="card-h">Opérations non rapprochées (${nonP.length})</div>
+     <p class="sm txt-m">Total non pointé : <b>${FCFA(nonP.reduce((a,l)=>a+l.debit-l.credit,0))}</b> — explique l'écart avec le relevé (chèques/virements en cours d'encaissement).</p></div>`
+    :'<div class="card"><p class="sm txt-v">✓ Toutes les opérations sont pointées.</p></div>'}`;
+}
+async function togglePointage(key){const id=RAP_CPT+'|'+key;const ex=await dbGet('pointages',id);
+  await dbPut('pointages',{id,pointe:!(ex&&ex.pointe)});renderRappro(document.getElementById('compta-body'));}
+async function saveReleve(){await dbPut('rapprochements',{id:RAP_CPT,soldeReleve:num('rap-solde'),dateReleve:val('rap-date')});
+  toast('Relevé enregistré');renderRappro(document.getElementById('compta-body'));}
+async function fecExport(){const ecs=(await dbAll('ecritures')).sort((a,b)=>a.date<b.date?-1:1);
+  let lines=['JournalCode|EcritureNum|EcritureDate|CompteNum|Libelle|Debit|Credit'];
+  ecs.forEach((e,n)=>e.lignes.forEach(l=>{lines.push([e.journal||'OD',e.piece||('E'+(n+1)),
+    (e.date||'').replace(/-/g,''),l.compte,(e.libelle||'').replace(/[|\n]/g,' '),l.debit||0,l.credit||0].join('|'));}));
+  const blob=new Blob([lines.join('\n')],{type:'text/plain'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='FEC_PSF_'+today()+'.txt';a.click();toast('FEC exporté ('+(lines.length-1)+' lignes)');}
 
 /* ====== INIT ====== */
 async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p)return;let chg=false;
