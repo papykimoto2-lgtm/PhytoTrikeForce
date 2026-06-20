@@ -5304,23 +5304,23 @@ async function campRender(t){const box=document.getElementById('camp-body');
 /* --- Cartographie cultures × zones --- */
 function campCarto(box){
   const zones=Object.keys(ZONE_COORDS);
-  const markers=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
-    return {lat:co[0],lng:co[1],label:z+' '+cs.map(c=>c.emoji).join(''),kind:'depot'};});
-  window._campSVG=ciMapSVG(markers,null);
   const matrice=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
-    return `<tr><td class="bold">${z} <button class="btn-g btn-sm" onclick="centrerCampGmap(${co[0]},${co[1]})">📍</button></td>
+    return `<tr style="cursor:pointer" onclick="campZoomZone(${co[0]},${co[1]},'${z}')">
+      <td class="bold">${z} <span class="sm txt-m">📍</span></td>
       <td>${cs.map(c=>`<span class="tag t-gris" style="margin:2px">${c.emoji} ${esc(c.nom)} (${c.part}%)</span>`).join('')||'<span class="txt-m sm">—</span>'}</td></tr>`;}).join('');
-  box.innerHTML=`<div class="row">
+  box.innerHTML=`<div class="row" style="align-items:flex-start">
     <div class="card" style="flex:2;padding:0;overflow:hidden">
-      <div style="padding:10px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--bord);flex-wrap:wrap">
-        <select onchange="centrerCampGmapSel(this.value)" style="width:auto;min-width:200px">
+      <div style="padding:10px 12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--bord);flex-wrap:wrap">
+        <select id="camp-zone-sel" onchange="campZoomSel(this.value)" style="width:auto;min-width:200px">
           <option value="">🌍 Vue Côte d'Ivoire</option>
           ${zones.map(z=>{const co=ZONE_COORDS[z];return `<option value="${co[0]},${co[1]}">${z} — ${culturesDeZone(z).map(c=>c.emoji).join('')}</option>`;}).join('')}</select>
-        <button class="btn-g btn-sm" id="camp-toggle" onclick="campMapToggle()">🗺️ Vue schéma</button></div>
-      <div id="camp-map"><iframe id="camp-gmap" src="${gmapPoint(7.5,-5.5,6)}" style="width:100%;height:430px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div></div>
-    <div class="card f"><div class="card-h">Cultures par zone</div>
+        <span class="sm txt-m">Tuiles © OpenStreetMap</span>
+      </div>
+      <div id="camp-map" style="width:100%;height:430px;background:#eef1f0"></div>
+    </div>
+    <div class="card f" style="min-width:220px"><div class="card-h">Cultures par zone</div>
      <table><tr><th>Zone</th><th>Cultures</th></tr>${matrice}</table>
-     <p class="sm txt-m" style="margin-top:6px">📍 recentre la carte Google sur la zone.</p></div>
+     <p class="sm txt-m" style="margin-top:8px">Cliquez sur une zone pour recentrer la carte.</p></div>
    </div>
    <div class="card"><div class="card-h">Part de marché phyto par culture (réf. business plan)</div>
     <table><tr><th>Culture</th><th>Zones</th><th class="right">Part</th><th>Familles d'intrants</th></tr>
@@ -5328,14 +5328,23 @@ function campCarto(box){
       return `<tr><td>${c.emoji} ${esc(c.nom)}</td><td class="sm">${c.zones.join(', ')}</td>
       <td class="right"><div class="bold">${c.part}%</div><div class="progress" style="width:90px"><i style="width:${c.part*2}%"></i></div></td>
       <td>${fams.map(f=>`<span class="tag" style="background:${FAM_COL[f]}22;color:${FAM_COL[f]}">${f}</span>`).join(' ')}</td></tr>`;}).join('')}</table></div>`;
+  /* Init carte Leaflet */
+  const pts=zones.map(z=>{const cs=culturesDeZone(z);const co=ZONE_COORDS[z];
+    const popupHTML='<b>'+esc(z)+'</b><br>'+(cs.length
+      ? cs.map(c=>'<span style="margin-right:4px">'+c.emoji+' '+esc(c.nom)+' ('+c.part+'%)</span>').join('<br>')
+      : '<span style="color:#94a3b8">Aucune culture référencée</span>');
+    return {lat:co[0],lng:co[1],color:'#1f7a3d',popup:popupHTML};});
+  setTimeout(()=>leafletInit('camp-map',pts,null),80);
 }
-function campMapToggle(){const m=document.getElementById('camp-map');const btn=document.getElementById('camp-toggle');if(!m)return;
-  if(document.getElementById('camp-gmap')){m.innerHTML=window._campSVG||'';if(btn)btn.textContent='🌍 Vue Google';}
-  else{m.innerHTML='<iframe id="camp-gmap" src="'+gmapPoint(7.5,-5.5,6)+'" style="width:100%;height:430px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>';if(btn)btn.textContent='🗺️ Vue schéma';}}
-function centrerCampGmap(la,ln){if(!document.getElementById('camp-gmap'))campMapToggle();
-  const f=document.getElementById('camp-gmap');if(f)f.src=gmapPoint(la,ln,8);}
-function centrerCampGmapSel(v){if(!v){if(!document.getElementById('camp-gmap'))campMapToggle();const f=document.getElementById('camp-gmap');if(f)f.src=gmapPoint(7.5,-5.5,6);return;}
-  const[la,ln]=v.split(',');centrerCampGmap(la,ln);}
+function campZoomZone(la,ln,z){
+  const el=document.getElementById('camp-map');if(!el||!el._map)return;
+  el._map.flyTo([la,ln],9,{duration:1});
+  const sel=document.getElementById('camp-zone-sel');if(sel)sel.value=la+','+ln;
+}
+function campZoomSel(v){
+  if(!v){const el=document.getElementById('camp-map');if(el&&el._map)el._map.flyTo([7.5,-5.5],7,{duration:1});return;}
+  const[la,ln]=v.split(',');campZoomZone(parseFloat(la),parseFloat(ln),'');
+}
 
 /* --- Calendrier saisonnier (Gantt 12 mois) --- */
 function campCalendrier(box){
