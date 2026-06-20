@@ -2768,9 +2768,9 @@ const STORES=['parametres','utilisateurs','produits','fournisseurs','depots','cl
 'lots','stock','mouvements','cmdAchat','cmdClient','livraisons','factures','avoirs',
 'reglements','comptes','ecritures','employes','paies','presences','exercices',
 'missions','conseils','rapports','depenses','campagnes','seq',
-'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn','audit'];
+'actions_mkg','objectifs_com','notifications','pointages','rapprochements','reglFourn','audit','lettrages'];
 function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open('PSF_ERP',9);
+  const r=indexedDB.open('PSF_ERP',10);
   r.onupgradeneeded=e=>{const db=e.target.result;
     STORES.forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:'id'});});};
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e);
@@ -3115,6 +3115,9 @@ async function ecrire(journal,date,libelle,lignes,piece,extra){
   const e=Object.assign({id:uid(),journal,numero,date,libelle,piece:piece||'',exercice:ex?.id,lignes,
     creeParId:STATE.user?.id||null,creeParNom:STATE.user?.nom||'Système',creeLe:new Date().toISOString()},extra||{});
   await dbPut('ecritures',e);
+  // garde-fou : tout compte utilisé doit exister dans le plan comptable (sinon il disparaît des rapports)
+  for(const l of lignes){if(!(await dbGet('comptes',l.compte))){
+    await ensureCompte(l.compte,'(compte auto-créé) '+l.compte,inferTypeCompte(l.compte));}}
   // mise à jour soldes comptes
   for(const l of lignes){const c=await dbGet('comptes',l.compte);
     if(c){c.solde=(c.solde||0)+(l.debit||0)-(l.credit||0);await dbPut('comptes',c);}}
@@ -3124,7 +3127,8 @@ async function ecrire(journal,date,libelle,lignes,piece,extra){
 async function balance(){
   const cs=await dbAll('comptes');const ecs=await dbAll('ecritures');
   const m={};cs.forEach(c=>m[c.num]={num:c.num,lib:c.libelle,type:c.type,debit:0,credit:0});
-  ecs.forEach(e=>e.lignes.forEach(l=>{if(!m[l.compte])return;
+  ecs.forEach(e=>e.lignes.forEach(l=>{
+    if(!m[l.compte])m[l.compte]={num:l.compte,lib:'(compte non répertorié)',type:inferTypeCompte(l.compte),debit:0,credit:0};
     m[l.compte].debit+=l.debit||0;m[l.compte].credit+=l.credit||0;}));
   return Object.values(m);
 }
@@ -3287,14 +3291,19 @@ async function editFourn(id){const f=id?await dbGet('fournisseurs',id):{pays:'Ch
    <div class="fld"><label>Nom</label><input id="f-nom" value="${esc(f.nom||'')}"></div>
    <div class="row"><div class="fld f"><label>Pays</label><input id="f-pays" value="${esc(f.pays||'')}"></div>
    <div class="fld f"><label>Délai paiement (jours)</label><input id="f-delai" type="number" value="${f.delai||60}"></div></div>
-   <div class="fld"><label>Contact</label><input id="f-contact" value="${esc(f.contact||'')}"></div>`,
+   <div class="row"><div class="fld f"><label>Contact</label><input id="f-contact" value="${esc(f.contact||'')}"></div>
+   <div class="fld f"><label>Compte comptable (auto si vide)</label><input id="f-cpt" value="${esc(f.compte&&f.compte!=='401'?f.compte:'')}" placeholder="ex: 4010001 — laisser vide pour auto"></div></div>`,
    `${id?`<button class="btn-r" style="margin-right:auto" onclick="confirmDel('Supprimer ?','async()=>{await dbDel(\\'fournisseurs\\',\\'${id}\\');go(\\'fournisseurs\\')}')">Supprimer</button>`:''}
     <button class="btn-g" onclick="closeModal()">Annuler</button>
     <button class="btn-p" onclick="saveFourn('${id||''}')">Enregistrer</button>`);
 }
 async function saveFourn(id){const f=id?await dbGet('fournisseurs',id):{id:uid(),compte:'401'};
-  Object.assign(f,{nom:val('f-nom'),pays:val('f-pays'),delai:num('f-delai'),contact:val('f-contact')});
-  await dbPut('fournisseurs',f);closeModal();toast('Enregistré');go('fournisseurs');}
+  let cpt=(val('f-cpt')||'').trim();
+  if(!cpt||cpt==='401')cpt='401'+await nextSeq('cpt-fourn');
+  Object.assign(f,{nom:val('f-nom'),pays:val('f-pays'),delai:num('f-delai'),contact:val('f-contact'),compte:cpt});
+  await dbPut('fournisseurs',f);
+  await ensureCompte(cpt,'Fournisseur — '+f.nom,'passif','401');
+  closeModal();toast('Enregistré (compte '+cpt+')');go('fournisseurs');}
 
 /* ---- STOCK ---- */
 PAGES.stock=async()=>{
@@ -3483,9 +3492,10 @@ async function confirmRecep(id){const c=await dbGet('cmdAchat',id);let htRecu=0;
     await mouvStock(l.produitId,STATE.depot,q,'entree','Récep. '+c.num);
     l.qteRecue=(l.qteRecue||0)+q;htRecu+=q*l.pu;}
   const tva=Math.round(htRecu*0.02);const complet=c.lignes.every(l=>(l.qteRecue||0)>=l.qte);
+  const four=await dbGet('fournisseurs',c.fournId);
   await ecrire('ACH',today(),'Achat '+c.num+(complet?'':' (partiel)'),[
     {compte:'601',debit:htRecu,credit:0},{compte:'4452',debit:tva,credit:0},
-    {compte:'401',debit:0,credit:htRecu+tva}],c.num);
+    {compte:four?.compte||'401',debit:0,credit:htRecu+tva}],c.num);
   c.statut=complet?'recue':'partiel';c.dateRecep=today();await dbPut('cmdAchat',c);
   closeModal();toast('Réception '+(complet?'complète':'partielle')+' + écriture comptable');go('appro');
 }
@@ -3563,7 +3573,7 @@ async function editClient(id){const c=id?await dbGet('clients',id):{type:'revend
     <div class="fld f"><label>Ville</label><input id="c-ville" value="${esc(c.ville||'')}"></div>
     <div class="fld f"><label>Téléphone</label><input id="c-tel" value="${esc(c.tel||'')}"></div></div>
    <div class="row"><div class="fld f"><label>Statut</label><select id="c-statut"><option value="client" ${c.statut!=='prospect'?'selected':''}>Client</option><option value="prospect" ${c.statut==='prospect'?'selected':''}>Prospect</option></select></div>    <div class="fld f"><label>Latitude GPS</label><input id="c-lat" value="${c.lat||''}" placeholder="auto si vide"></div>    <div class="fld f"><label>Longitude GPS</label><input id="c-lng" value="${c.lng||''}" placeholder="auto si vide"></div></div>
-   <div class="row"><div class="fld f"><label>Compte comptable</label><input id="c-cpt" value="${esc(c.compte||'4111')}"></div>
+   <div class="row"><div class="fld f"><label>Compte comptable (auto si vide)</label><input id="c-cpt" value="${esc(c.compte&&c.compte!=='4111'?c.compte:'')}" placeholder="ex: 4110001 — laisser vide pour auto"></div>
     <div class="fld f"><label>NCC / IFU (pour FNE)</label><input id="c-ncc" value="${esc(c.ncc||'')}" placeholder="Numéro Compte Contribuable"></div>
     <div class="fld f"><label>Plafond crédit</label><input id="c-plaf" type="number" value="${c.plafond||0}"></div></div>
    <div class="card-h" style="margin-top:6px;font-size:13px">📦 Conditions distributeur / revendeur</div>
@@ -3584,11 +3594,15 @@ function autoTarif(){const t=val('c-type');const m={distributeur:'gros',revendeu
 async function saveClient(id){const c=id?await dbGet('clients',id):{id:uid(),solde:0};
   let lat=parseFloat(val('c-lat')),lng=parseFloat(val('c-lng'));
   if(isNaN(lat)||isNaN(lng)){const co=CITIES[(val('c-ville')||'').trim().toLowerCase()]||CITIES[(val('c-zone')||'').toLowerCase()]||CITIES['abidjan'];lat=co[0];lng=co[1];}
+  let cpt=(val('c-cpt')||'').trim();
+  if(!cpt||cpt==='4111')cpt='411'+await nextSeq('cpt-client');
   Object.assign(c,{nom:val('c-nom'),type:val('c-type'),tarif:val('c-tarif'),zone:val('c-zone'),
-    ville:val('c-ville'),tel:val('c-tel'),compte:val('c-cpt'),ncc:val('c-ncc'),plafond:num('c-plaf'),
+    ville:val('c-ville'),tel:val('c-tel'),compte:cpt,ncc:val('c-ncc'),plafond:num('c-plaf'),
     statut:val('c-statut')||'client',lat,lng,
     remiseDist:num('c-remise'),delaiPaiement:num('c-delai'),ristourne:num('c-ristourne'),objectifCA:num('c-objectif'),encoursBloque:val('c-bloque')==='1'});
-  await dbPut('clients',c);closeModal();toast('Client enregistré');go('clients');}
+  await dbPut('clients',c);
+  await ensureCompte(cpt,'Client — '+c.nom,'actif','411');
+  closeModal();toast('Client enregistré (compte '+cpt+')');go('clients');}
 
 /* ---- COMMANDES CLIENT ---- */
 PAGES.commandes=async()=>{
@@ -3769,7 +3783,7 @@ PAGES.factures=async()=>{
         ${reste>0&&f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="planEcheancierModal('${f.id}')" title="Facilité de paiement">📅</button>`:''}
         <button class="btn-g btn-sm" onclick="imprimerFacture('${f.id}')">🖨️</button>
         ${f.statut!=='annulee'?`<button class="btn-g btn-sm" onclick="annulerFacture('${f.id}')">Annuler</button>`:''}
-        <button class="btn-r btn-sm" onclick="supprimerFacture('${f.id}')">Suppr.</button></td></tr>`;}).join('')
+        ${(f.regle||0)===0?`<button class="btn-r btn-sm" onclick="supprimerFacture('${f.id}')" title="Réservé aux factures jamais réglées — sinon utilisez Annuler">Suppr.</button>`:''}</td></tr>`;}).join('')
     ||'<tr><td colspan=10 class="empty">Aucune facture</td></tr>'}
    </table></div>`);
 };
@@ -4830,8 +4844,19 @@ async function saveRapport(id){const r=id?await dbGet('rapports',id):{id:uid()};
 
 
 /* ---- compte auto (upgrade DB) ---- */
-async function ensureCompte(num,lib,type){let c=await dbGet('comptes',num);
-  if(!c){await dbPut('comptes',{id:num,num,libelle:lib,type,solde:0});}}
+async function ensureCompte(num,lib,type,racine){let c=await dbGet('comptes',num);
+  if(!c){await dbPut('comptes',{id:num,num,libelle:lib,type,solde:0,racine:racine||''});}
+  else if(racine&&!c.racine){c.racine=racine;await dbPut('comptes',c);}}
+function inferTypeCompte(num){const n=String(num);
+  if(n.startsWith('40'))return 'passif';
+  if(n.startsWith('41'))return 'actif';
+  if(/^1/.test(n))return 'passif';
+  if(/^[23]/.test(n))return 'actif';
+  if(/^4/.test(n))return 'actif';
+  if(/^5/.test(n))return 'actif';
+  if(/^6/.test(n))return 'charge';
+  if(/^7/.test(n))return 'produit';
+  return 'actif';}
 
 /* ---- VALORISATION PAR DÉPÔT ---- */
 async function stockValo(box){
@@ -5165,10 +5190,41 @@ let ECH=[];
 /* ====== COMPTABILITÉ DES TIERS (clients 411 + fournisseurs 401) ====== */
 function ttcAchat(c){const htRecu=(c.lignes||[]).reduce((a,l)=>a+((l.qteRecue||0)*l.pu),0);
   const ht=htRecu>0?htRecu:(c.totalHT||0);return ht+Math.round(ht*0.02);}
+function nextLettrageCode(used){let n=0;
+  while(true){let m=n+1,s='';while(m>0){m--;s=String.fromCharCode(65+(m%26))+s;m=Math.floor(m/26);}
+    if(!used.includes(s))return s;n++;}}
+window._pendingLettrage=null;
+async function lettrerSelection(type,tiersId){
+  const chks=[...document.querySelectorAll('.lettr-chk:checked')];
+  if(chks.length<2){toast('Sélectionnez au moins 2 lignes à lettrer (une facture/achat + un règlement)');return;}
+  const cache=type==='client'?window._releve.lines:window._releveF.lines;
+  const ids=chks.map(c=>c.value);
+  const sel=cache.filter(l=>ids.includes(l.id));
+  const net=type==='client'?sel.reduce((a,l)=>a+(l.debit-l.credit),0):sel.reduce((a,l)=>a+(l.credit-l.debit),0);
+  const existing=(await dbAll('lettrages')).filter(x=>x.tiersType===type&&x.tiersId===tiersId);
+  const code=nextLettrageCode(existing.map(x=>x.code));
+  window._pendingLettrage={type,tiersId,ids,code,net};
+  if(Math.abs(net)>1){
+    confirmAction('Le solde des lignes sélectionnées n\u2019est pas nul (écart de '+FCFA0(Math.abs(net))+' F). Lettrer quand même (lettrage partiel) ?','Lettrer quand même','confirmerLettrage');
+  } else {
+    await confirmerLettrage();
+  }
+}
+async function confirmerLettrage(){const p=window._pendingLettrage;if(!p)return;
+  await dbPut('lettrages',{id:uid(),tiersType:p.type,tiersId:p.tiersId,code:p.code,ligneIds:p.ids,date:today(),ecart:p.net});
+  await logAudit('lettrage',p.type==='client'?'clients':'fournisseurs',p.tiersId,'Lettre '+p.code+' — '+p.ids.length+' lignes — écart '+FCFA0(Math.abs(p.net))+' F');
+  toast('Lettré '+p.code);window._pendingLettrage=null;
+  p.type==='client'?releveTiers(p.tiersId):releveFourn(p.tiersId);
+}
+function delettrer(id){confirmAction('Délettrer ? Les lignes redeviennent non lettrées.','Délettrer',
+  `async()=>{const l=await dbGet('lettrages','${id}');await dbDel('lettrages','${id}');
+    await logAudit('delettrage','lettrages','${id}','Délettrage '+(l?l.code:''));toast('Délettré');
+    l&&l.tiersType==='client'?releveTiers(l.tiersId):releveFourn(l&&l.tiersId);}`);}
 async function saveReglFourn(cmdId){const c=await dbGet('cmdAchat',cmdId);const mt=num('rf-mt');const mode=val('rf-mode');
   if(mt<=0)return;const date=val('rf-date')||today();
+  const four=await dbGet('fournisseurs',c.fournId);
   const ec=await ecrire('TRE',date,'Règlt fourn. '+c.num,[
-    {compte:'401',debit:mt,credit:0},{compte:mode,debit:0,credit:mt}],c.num);
+    {compte:four?.compte||'401',debit:mt,credit:0},{compte:mode,debit:0,credit:mt}],c.num);
   await dbPut('reglFourn',{id:uid(),fournId:c.fournId,cmdId,montant:mt,mode,date,ecritureId:ec.id});
   closeModal();toast('Règlement fournisseur enregistré');go('appro');
 }
@@ -5205,21 +5261,25 @@ async function releveFourn(fid){if(!fid){document.getElementById('rvf-body').inn
   const cmds=(await dbAll('cmdAchat')).filter(c=>c.fournId===fid&&(c.statut==='recue'||c.statut==='partiel'));
   const regs=(await dbAll('reglFourn')).filter(r=>r.fournId===fid);
   let lines=[];
-  cmds.forEach(c=>lines.push({date:c.dateRecep||c.date,libelle:'Achat '+c.num,debit:0,credit:ttcAchat(c)}));
-  regs.forEach(r=>lines.push({date:r.date,libelle:'Règlement ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:r.montant,credit:0,rid:r.id}));
+  cmds.forEach(c=>lines.push({id:'A-'+c.id,date:c.dateRecep||c.date,libelle:'Achat '+c.num,debit:0,credit:ttcAchat(c)}));
+  regs.forEach(r=>lines.push({id:'RF-'+r.id,date:r.date,libelle:'Règlement ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:r.montant,credit:0,rid:r.id}));
   lines.sort((a,b)=>a.date<b.date?-1:1);
-  let solde=0;const rows=lines.map(l=>{solde+=l.credit-l.debit;
+  const lett=(await dbAll('lettrages')).filter(x=>x.tiersType==='fournisseur'&&x.tiersId===fid);
+  const lmap={};lett.forEach(x=>x.ligneIds.forEach(li=>lmap[li]={code:x.code,lid:x.id}));
+  let solde=0;const rows=lines.map(l=>{solde+=l.credit-l.debit;const lt=lmap[l.id];
     return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
     <td class="right">${l.credit?FCFA0(l.credit):''}</td><td class="right bold">${FCFA0(solde)}</td>
+    <td>${lt?`<span class="tag t-vert" style="cursor:pointer" onclick="delettrer('${lt.lid}')" title="Cliquer pour délettrer">Lettre ${lt.code}</span>`:`<input type="checkbox" class="lettr-chk" value="${l.id}">`}</td>
     <td>${l.rid?`<button class="btn-r btn-sm" onclick="annulerReglFourn('${l.rid}')">×</button>`:''}</td></tr>`;}).join('');
   window._releveF={f,lines,solde};
   document.getElementById('rvf-body').innerHTML=`
-   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(f.nom)} — ${esc(f.pays||'')} ${f.ncc?'• NCC '+esc(f.ncc):''}</div>
+   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(f.nom)} — ${esc(f.pays||'')} ${f.ncc?'• NCC '+esc(f.ncc):''} <span class="sm txt-m">cpt ${esc(f.compte||'')}</span></div>
+     <button class="btn-g btn-sm" onclick="lettrerSelection('fournisseur','${fid}')">🔗 Lettrer la sélection</button>
      <button class="btn-b btn-sm" onclick="imprimerReleveFourn()">🖨️ Relevé</button></div>
-   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit (payé)</th><th class="right">Crédit (dû)</th><th class="right">Solde</th><th></th></tr>
-    ${rows||'<tr><td colspan=6 class="empty">Aucun mouvement</td></tr>'}
+   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit (payé)</th><th class="right">Crédit (dû)</th><th class="right">Solde</th><th>Lettrage</th><th></th></tr>
+    ${rows||'<tr><td colspan=7 class="empty">Aucun mouvement</td></tr>'}
     <tr style="background:#f1f5f9"><td colspan=4 class="bold right">SOLDE À PAYER</td>
-     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td><td></td></tr></table>`;
+     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td><td colspan=2></td></tr></table>`;
 }
 async function imprimerReleveFourn(){const {f,lines,solde}=window._releveF;const p=await dbGet('parametres','main');
   let s=0;const rows=lines.map(l=>{s+=l.credit-l.debit;
@@ -5270,21 +5330,25 @@ async function releveTiers(cid){if(!cid){document.getElementById('rv-body').inne
   const facs=(await dbAll('factures')).filter(f=>f.clientId===cid&&f.statut!=='annulee');
   const regs=await dbAll('reglements');
   let lines=[];
-  facs.forEach(f=>lines.push({date:f.date,libelle:'Facture '+f.num,debit:f.totalTTC,credit:0}));
+  facs.forEach(f=>lines.push({id:'F-'+f.id,date:f.date,libelle:'Facture '+f.num,debit:f.totalTTC,credit:0}));
   facs.forEach(f=>regs.filter(r=>r.factureId===f.id).forEach(r=>lines.push(
-    {date:r.date,libelle:'Règlement '+f.num+' ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:0,credit:r.montant})));
+    {id:'R-'+r.id,date:r.date,libelle:'Règlement '+f.num+' ('+({571:'Espèces',531:'Mobile Money',521:'Banque'}[r.mode]||'')+')',debit:0,credit:r.montant})));
   lines.sort((a,b)=>a.date<b.date?-1:1);
-  let solde=0;const rows=lines.map(l=>{solde+=l.debit-l.credit;
+  const lett=(await dbAll('lettrages')).filter(x=>x.tiersType==='client'&&x.tiersId===cid);
+  const lmap={};lett.forEach(x=>x.ligneIds.forEach(li=>lmap[li]={code:x.code,lid:x.id}));
+  let solde=0;const rows=lines.map(l=>{solde+=l.debit-l.credit;const lt=lmap[l.id];
     return `<tr><td>${fmtD(l.date)}</td><td>${esc(l.libelle)}</td><td class="right">${l.debit?FCFA0(l.debit):''}</td>
-    <td class="right">${l.credit?FCFA0(l.credit):''}</td><td class="right bold">${FCFA0(solde)}</td></tr>`;}).join('');
+    <td class="right">${l.credit?FCFA0(l.credit):''}</td><td class="right bold">${FCFA0(solde)}</td>
+    <td>${lt?`<span class="tag t-vert" style="cursor:pointer" onclick="delettrer('${lt.lid}')" title="Cliquer pour délettrer">Lettre ${lt.code}</span>`:`<input type="checkbox" class="lettr-chk" value="${l.id}">`}</td></tr>`;}).join('');
   window._releve={cl,lines,solde};
   document.getElementById('rv-body').innerHTML=`
-   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(cl.nom)} — ${esc(cl.ville||cl.zone)} ${cl.ncc?'• NCC '+esc(cl.ncc):''}</div>
+   <div class="page-h" style="margin:0 0 10px"><div class="bold f">${esc(cl.nom)} — ${esc(cl.ville||cl.zone)} ${cl.ncc?'• NCC '+esc(cl.ncc):''} <span class="sm txt-m">cpt ${esc(cl.compte||'')}</span></div>
+     <button class="btn-g btn-sm" onclick="lettrerSelection('client','${cid}')">🔗 Lettrer la sélection</button>
      <button class="btn-b btn-sm" onclick="imprimerReleve()">🖨️ Relevé</button></div>
-   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit</th><th class="right">Crédit</th><th class="right">Solde</th></tr>
-    ${rows||'<tr><td colspan=5 class="empty">Aucun mouvement</td></tr>'}
+   <table><tr><th>Date</th><th>Libellé</th><th class="right">Débit</th><th class="right">Crédit</th><th class="right">Solde</th><th>Lettrage</th></tr>
+    ${rows||'<tr><td colspan=6 class="empty">Aucun mouvement</td></tr>'}
     <tr style="background:#f1f5f9"><td colspan=4 class="bold right">SOLDE DÛ</td>
-     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td></tr></table>`;
+     <td class="right bold ${solde>0?'txt-r':'txt-v'}">${FCFA(solde)}</td><td></td></tr></table>`;
 }
 async function imprimerReleve(){const {cl,lines,solde}=window._releve;const p=await dbGet('parametres','main');
   let s=0;const rows=lines.map(l=>{s+=l.debit-l.credit;
@@ -5384,7 +5448,7 @@ async function annulerFacture(id){const f=await dbGet('factures',id);
      await logAudit('annulation','factures','${id}','Facture '+f.num+' annulée (extournée)');
      toast('Facture annulée (extournée)');go('factures')}`);}
 async function supprimerFacture(id){const f=await dbGet('factures',id);
-  confirmDel('Supprimer définitivement la facture '+f.num+' ? Écritures extournées et règlements liés supprimés'+(!f.cmdId&&f.statut!=='annulee'?', stock réintégré':'')+'.',
+  confirmDel('Supprimer définitivement la facture '+f.num+' ? Ce numéro disparaîtra de la séquence légale (trou de numérotation). Préférez "Annuler" pour les factures déjà transmises. Écritures extournées et règlements liés supprimés'+(!f.cmdId&&f.statut!=='annulee'?', stock réintégré':'')+'.',
    `async()=>{const f=await dbGet('factures','${id}');
      await delEcrituresPiece(f.num);
      const regs=(await dbAll('reglements')).filter(r=>r.factureId==='${id}');for(const r of regs)await dbDel('reglements',r.id);
@@ -6899,8 +6963,20 @@ async function majParamsFiscaux(){const p=await dbGet('parametres','main');if(!p
   if(p.cnpsNum===undefined){p.cnpsNum='';chg=true;}
   if(chg)await dbPut('parametres',p);
 }
+async function migrerComptesTiers(){
+  // attribue un sous-compte individuel (411xxxx/401xxxx) à chaque tiers resté sur le compte générique partagé.
+  // les écritures déjà passées restent sur 4111/401 (intangibilité) ; seules les nouvelles opérations utiliseront le sous-compte.
+  const cls=await dbAll('clients');
+  for(const c of cls){if(!c.compte||c.compte==='4111'){
+    c.compte='411'+await nextSeq('cpt-client');await dbPut('clients',c);
+    await ensureCompte(c.compte,'Client — '+c.nom,'actif','411');}}
+  const fs=await dbAll('fournisseurs');
+  for(const f of fs){if(!f.compte||f.compte==='401'){
+    f.compte='401'+await nextSeq('cpt-fourn');await dbPut('fournisseurs',f);
+    await ensureCompte(f.compte,'Fournisseur — '+f.nom,'passif','401');}}
+}
 (async()=>{
-  try{DB=await openDB();await seed();await majParamsFiscaux();}catch(e){console.error(e);alert('Erreur init: '+e);}
+  try{DB=await openDB();await seed();await majParamsFiscaux();await migrerComptesTiers();}catch(e){console.error(e);alert('Erreur init: '+e);}
 })();
 document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 
