@@ -47,7 +47,9 @@ tr:hover td{background:#f8fafc}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:13px}
 .avatar{width:32px;height:32px;border-radius:50%;background:var(--bleu);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
 .layout{display:flex}
-.sidebar{width:210px;background:var(--card);border-right:1px solid var(--bord);min-height:calc(100vh - 56px);padding:10px 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+.sidebar{width:210px;background:var(--card);border-right:1px solid var(--bord);min-height:calc(100vh - 56px);position:sticky;top:56px;height:calc(100vh - 56px);overflow:hidden;display:flex;flex-direction:column}
+.sidebar-nav{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 0}
+.sidebar-sig{flex-shrink:0}
 .nav-grp{font-size:10px;text-transform:uppercase;color:#94a3b8;font-weight:700;padding:14px 18px 4px;letter-spacing:.5px}
 .nav-item{display:flex;align-items:center;gap:10px;padding:9px 18px;color:#475569;cursor:pointer;font-size:13px;border-left:3px solid transparent}
 .nav-item:hover{background:#f8fafc}
@@ -293,8 +295,7 @@ tr:hover td{background:#f8fafc}
 
 /* Signature sidebar */
 .sidebar-sig{
-  position:absolute;bottom:0;left:0;right:0;
-  background:linear-gradient(180deg,rgba(255,255,255,0) 0%,#fff 18%);
+  background:#fff;
   padding:18px 14px 14px;
   border-top:1px solid var(--bord);
   text-align:center;
@@ -319,8 +320,7 @@ tr:hover td{background:#f8fafc}
 }
 .sidebar-sig .sb-icon{font-size:12px;}
 
-/* Ajuste la sidebar pour laisser la place à la sig */
-.sidebar{padding-bottom:100px !important;}
+/* (ancien hack padding-bottom retiré : inutile depuis le passage de .sidebar-sig en position:sticky) */
 
 /* Signature dans les documents imprimés */
 @media print{
@@ -343,7 +343,8 @@ tr:hover td{background:#f8fafc}
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif}
 .topbar{border-bottom:1px solid var(--bord);box-shadow:0 2px 0 0 var(--cuivre),0 1px 4px rgba(0,0,0,.04)}
 /* Sidebar ardoise */
-.sidebar{width:222px;background:var(--nuit);border-right:none;padding-top:6px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sidebar{width:222px;background:var(--nuit);border-right:none;overflow:hidden;display:flex;flex-direction:column}
+.sidebar-nav{padding-top:6px}
 @media(min-width:861px){.main{max-width:calc(100vw - 222px)}}
 .nav-grp{color:#5e7d6c;letter-spacing:.6px;font-weight:700;padding:16px 18px 4px}
 .nav-item{color:#b8c9bf;border-left:3px solid transparent;border-radius:0 8px 8px 0;margin-right:8px;gap:10px}
@@ -1359,7 +1360,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
   <div class="layout">
     <div class="sidebar" id="sidebar">
-      <!-- ── SIGNATURE SIDEBAR ── -->
+      <div class="sidebar-nav" id="sidebarNav"></div>
+      <!-- ── SIGNATURE SIDEBAR (fixe, hors zone de scroll) ── -->
       <div class="sidebar-sig">
         <div class="sb-sep"></div>
         <div class="sb-logo">🏭 Sanix Africa</div>
@@ -4065,11 +4067,9 @@ function buildNav(){
       h+=`<div class="nav-item" data-k="${k}" onclick="_goAndClose('${k}')">
         <span class="ic">${ic}</span><span class="nav-lab">${lab}</span><span class="nav-badge" id="badge-${k}"></span></div>`;
   }
-  // Préserver la signature existante et construire le nav avant elle
-  const sb=document.getElementById('sidebar');
-  const sig=sb.querySelector('.sidebar-sig');
-  sb.innerHTML=h;
-  if(sig)sb.appendChild(sig);
+  // Construction du nav dans sa zone scrollable dédiée (la sig reste fixe en bas, hors de cette zone)
+  const navEl=document.getElementById('sidebarNav');
+  navEl.innerHTML=h;
   /* ── Bottom nav : 5 raccourcis principaux ── */
   const BN=[['dashboard','📊','Accueil'],['stock','📦','Stock'],['commandes','🛒','Ventes'],['factures','🧾','Factures'],['tresorerie','💰','Tréso']];
   const bn=document.getElementById('bottomNav');
